@@ -1,0 +1,271 @@
+# PRD: CIE-H14A Modbus TCP/IP 제어 웹 애플리케이션
+
+## 1. 프로젝트 개요
+
+### 1.1 목적
+CIE-H14A 제어기를 Modbus TCP/IP 프로토콜을 통해 웹 인터페이스로 모니터링 및 제어하는 시스템 구축
+
+### 1.2 범위
+- 4채널 디지털 입력 실시간 모니터링
+- 4채널 디지털 출력 제어
+- Docker 기반 배포 및 실행
+- Python 기반 백엔드 서버
+- 웹 브라우저 기반 UI
+
+## 2. 기술 스택
+
+### 2.1 Backend
+- **언어**: Python 3.11+
+- **웹 프레임워크**: Flask
+- **Modbus 라이브러리**: pyModbusTCP
+- **비동기 처리**: Threading
+
+### 2.2 Frontend
+- **HTML5/CSS3/JavaScript**
+- **UI 프레임워크**: Bootstrap 5
+- **실시간 통신**: Server-Sent Events (SSE) 또는 WebSocket
+
+### 2.3 Infrastructure
+- **컨테이너**: Docker
+- **배포**: Docker Compose
+
+## 3. 기능 요구사항
+
+### 3.1 입력 모니터링
+- **FR-1.1**: 4개의 디지털 입력 채널 실시간 상태 표시
+- **FR-1.2**: 각 입력 채널의 ON/OFF 상태를 그래픽으로 표시 (LED 아이콘)
+- **FR-1.3**: 입력 상태 변화 시 자동 UI 업데이트 (폴링 간격: 500ms)
+- **FR-1.4**: 각 채널별 라벨 표시
+
+### 3.2 출력 제어
+- **FR-2.1**: 4개의 출력 버튼 제공
+- **FR-2.2**: 각 버튼 클릭 시 해당 채널 출력 ON/OFF 토글
+- **FR-2.3**: 현재 출력 상태를 버튼 색상으로 표시
+- **FR-2.4**: 출력 명령 실행 결과 피드백
+
+### 3.3 연결 관리
+- **FR-3.1**: Modbus TCP/IP 연결 상태 표시
+- **FR-3.2**: 연결 실패 시 재연결 시도
+- **FR-3.3**: 연결 설정 (IP 주소, 포트, Unit ID)
+
+## 4. 비기능 요구사항
+
+### 4.1 성능
+- **NFR-1.1**: 입력 상태 읽기 응답 시간 < 100ms
+- **NFR-1.2**: 출력 제어 응답 시간 < 200ms
+- **NFR-1.3**: UI 업데이트 지연 < 1초
+
+### 4.2 신뢰성
+- **NFR-2.1**: 연결 끊김 시 자동 재연결
+- **NFR-2.2**: 에러 로깅 및 표시
+- **NFR-2.3**: 장애 복구 메커니즘
+
+### 4.3 사용성
+- **NFR-3.1**: 반응형 웹 디자인
+- **NFR-3.2**: 직관적인 UI/UX
+- **NFR-3.3**: 실시간 상태 피드백
+
+### 4.4 보안
+- **NFR-4.1**: 환경 변수를 통한 설정 관리
+- **NFR-4.2**: 네트워크 격리 (Docker)
+
+## 5. Modbus 통신 사양
+
+### 5.1 CIE-H14A 설정
+- **IP 주소**: 환경 변수로 설정 (기본: 10.1.0.1)
+- **포트**: 502
+- **Unit ID**: 1
+- **프로토콜**: Modbus TCP
+
+### 5.2 레지스터 맵핑
+#### 입력 (Digital Input)
+| 채널 | Function Code | Address | Type |
+|------|---------------|---------|------|
+| DI0  | 02 (Read Discrete Inputs) | 0 | Coil |
+| DI1  | 02 | 1 | Coil |
+| DI2  | 02 | 2 | Coil |
+| DI3  | 02 | 3 | Coil |
+
+또는
+
+| 채널 | Function Code | Address | Bit |
+|------|---------------|---------|-----|
+| DI Word | 03/04 (Read Holding/Input Registers) | 0 | 0-3 |
+
+#### 출력 (Digital Output)
+| 채널 | Function Code | Address | Type |
+|------|---------------|---------|------|
+| DO0  | 05 (Write Single Coil) | 8 | Coil |
+| DO1  | 05 | 9 | Coil |
+| DO2  | 05 | 10 | Coil |
+| DO3  | 05 | 11 | Coil |
+
+또는
+
+| 채널 | Function Code | Address | Bit |
+|------|---------------|---------|-----|
+| DO Word | 16 (Write Multiple Registers) | 8 | 0-3 |
+
+## 6. 시스템 아키텍처
+
+```
+┌─────────────────────────────────────────┐
+│          Web Browser (Client)           │
+│  - HTML/CSS/JavaScript                  │
+│  - Bootstrap UI                         │
+└────────────────┬────────────────────────┘
+                 │ HTTP/SSE
+                 │
+┌────────────────▼────────────────────────┐
+│         Flask Web Server (Backend)      │
+│  - REST API                             │
+│  - SSE for real-time updates           │
+│  - Modbus Client Logic                 │
+└────────────────┬────────────────────────┘
+                 │ Modbus TCP/IP
+                 │ (Port 502)
+┌────────────────▼────────────────────────┐
+│         CIE-H14A Controller             │
+│  - 4 Digital Inputs                     │
+│  - 4 Digital Outputs (Relay)            │
+└─────────────────────────────────────────┘
+```
+
+## 7. API 설계
+
+### 7.1 REST API Endpoints
+
+#### GET /api/status
+- **설명**: 전체 입출력 상태 조회
+- **응답**:
+```json
+{
+  "connected": true,
+  "inputs": [false, true, false, true],
+  "outputs": [true, false, false, true],
+  "timestamp": "2025-10-13T12:34:56"
+}
+```
+
+#### POST /api/output/<channel>
+- **설명**: 특정 출력 채널 제어
+- **파라미터**: channel (0-3)
+- **요청 본문**:
+```json
+{
+  "state": true
+}
+```
+- **응답**:
+```json
+{
+  "success": true,
+  "channel": 0,
+  "state": true
+}
+```
+
+#### GET /api/events
+- **설명**: Server-Sent Events 스트림
+- **응답**: 실시간 입력 상태 업데이트
+
+#### GET /api/config
+- **설명**: 현재 Modbus 연결 설정 조회
+
+#### POST /api/config
+- **설명**: Modbus 연결 설정 변경
+
+## 8. 디렉토리 구조
+
+```
+modbus-controller/
+├── app/
+│   ├── __init__.py
+│   ├── modbus_client.py      # Modbus TCP 클라이언트
+│   ├── routes.py              # Flask 라우트
+│   └── static/
+│       ├── css/
+│       │   └── style.css
+│       ├── js/
+│       │   └── main.js
+│       └── index.html
+├── config/
+│   └── config.py              # 설정 파일
+├── Dockerfile
+├── docker-compose.yml
+├── requirements.txt
+├── .env.example
+├── .dockerignore
+├── .gitignore
+└── README.md
+```
+
+## 9. 개발 일정
+
+### Phase 1: 기본 기능 구현 (1주)
+- Modbus TCP 연결 및 읽기/쓰기 기능
+- Flask 서버 기본 구조
+- 기본 웹 UI
+
+### Phase 2: 실시간 모니터링 (3일)
+- SSE 구현
+- 자동 폴링 및 상태 업데이트
+- 에러 핸들링
+
+### Phase 3: Docker 배포 (2일)
+- Dockerfile 작성
+- Docker Compose 설정
+- 환경 변수 관리
+
+### Phase 4: 테스트 및 문서화 (2일)
+- 통합 테스트
+- 사용자 매뉴얼
+- README 작성
+
+## 10. 테스트 계획
+
+### 10.1 단위 테스트
+- Modbus 읽기/쓰기 함수
+- API 엔드포인트
+
+### 10.2 통합 테스트
+- 실제 CIE-H14A 장비 연동
+- 입력 시뮬레이션 및 출력 검증
+
+### 10.3 성능 테스트
+- 폴링 주기별 응답 시간 측정
+- 동시 사용자 부하 테스트
+
+## 11. 배포 가이드
+
+### 11.1 사전 요구사항
+- Docker 및 Docker Compose 설치
+- CIE-H14A 네트워크 연결
+- 방화벽 포트 502 개방
+
+### 11.2 배포 단계
+1. 저장소 클론
+2. `.env` 파일 설정
+3. `docker-compose up -d` 실행
+4. 웹 브라우저에서 `http://localhost:5000` 접속
+
+## 12. 유지보수
+
+### 12.1 로깅
+- 모든 Modbus 통신 로그
+- 에러 및 예외 로그
+- 사용자 액션 로그
+
+### 12.2 모니터링
+- 연결 상태 모니터링
+- 성능 메트릭 수집
+
+## 13. 향후 개선사항
+
+- 사용자 인증 및 권한 관리
+- 히스토리 데이터 저장 (DB)
+- 알림 기능 (이메일, Slack 등)
+- 다중 장비 지원
+- 데이터 시각화 (차트, 그래프)
+- 펄스 제어 기능 (FC 105)
+- 모바일 앱 개발

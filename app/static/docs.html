@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API 문서 - CIE-H14A Modbus Controller</title>
+
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+
+    <!-- Prism.js for syntax highlighting (Dark Theme) -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet">
+
+    <!-- Custom CSS (link to style.css for dark mode) -->
+    <link rel="stylesheet" href="css/style.css">
+
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #0a0e27 0%, #131829 50%, #0a0e27 100%);
+            background-attachment: fixed;
+            color: #e8eaed;
+            min-height: 100vh;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background:
+                radial-gradient(circle at 20% 50%, rgba(0, 61, 122, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, rgba(228, 30, 38, 0.1) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .navbar {
+            background: rgba(255, 255, 255, 0.05) !important;
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+        }
+
+        .navbar-brand {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .logo-container {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.3rem 0.8rem;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+        }
+
+        .logo-img {
+            height: 32px;
+            width: auto;
+            filter: brightness(0) invert(1);
+        }
+
+        .sidebar {
+            position: fixed;
+            top: 56px;
+            bottom: 0;
+            left: 0;
+            z-index: 100;
+            padding: 20px 0;
+            overflow-x: hidden;
+            overflow-y: auto;
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(20px);
+        }
+        .sidebar .nav-link {
+            color: #9ca3af;
+            padding: 8px 20px;
+            font-size: 14px;
+            transition: all 0.2s ease;
+        }
+        .sidebar .nav-link:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: #3b82f6;
+        }
+        .sidebar .nav-link.active {
+            color: #3b82f6;
+            font-weight: 600;
+            background: rgba(59, 130, 246, 0.1);
+            border-left: 3px solid #3b82f6;
+        }
+        main {
+            margin-top: 56px;
+            margin-left: 280px;
+            padding: 40px;
+            position: relative;
+            z-index: 1;
+        }
+
+        h1, h2, h4, h5, h6 {
+            color: #e8eaed;
+        }
+
+        .endpoint-card {
+            margin-bottom: 30px;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(20px) saturate(180%);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            border-left: 4px solid #3b82f6;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+            transition: all 0.3s ease;
+        }
+
+        .endpoint-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 12px 48px 0 rgba(0, 0, 0, 0.5);
+            border-color: rgba(59, 130, 246, 0.5);
+        }
+
+        .card-header {
+            background: rgba(255, 255, 255, 0.08) !important;
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+            color: #e8eaed !important;
+        }
+
+        .card-body {
+            color: #e8eaed;
+        }
+
+        .method-badge {
+            font-weight: 600;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+        }
+        .method-get {
+            background: linear-gradient(135deg, rgba(0, 150, 255, 0.3) 0%, rgba(0, 100, 200, 0.2) 100%);
+            border: 1px solid rgba(0, 150, 255, 0.5);
+            color: #60a5fa;
+        }
+        .method-post {
+            background: linear-gradient(135deg, rgba(0, 255, 136, 0.3) 0%, rgba(0, 200, 100, 0.2) 100%);
+            border: 1px solid rgba(0, 255, 136, 0.5);
+            color: #00ff88;
+        }
+        .response-example {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+        pre[class*="language-"] {
+            border-radius: 10px;
+            margin: 10px 0;
+            background: rgba(0, 0, 0, 0.4) !important;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .try-it-btn {
+            margin-top: 10px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            border: 1px solid rgba(59, 130, 246, 0.5);
+            color: white;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+            border-color: rgba(59, 130, 246, 0.8);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(59, 130, 246, 0.4);
+        }
+
+        .btn-outline-light {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #e8eaed;
+        }
+
+        .btn-outline-light:hover {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: rgba(255, 255, 255, 0.3);
+            color: #e8eaed;
+        }
+
+        .response-output {
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #00ff88;
+            padding: 15px;
+            border-radius: 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .alert {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            color: #e8eaed;
+        }
+
+        .alert-info {
+            background: linear-gradient(135deg, rgba(0, 150, 255, 0.1) 0%, rgba(0, 100, 200, 0.05) 100%);
+            border-color: rgba(0, 150, 255, 0.3);
+        }
+
+        .alert-warning {
+            background: linear-gradient(135deg, rgba(255, 165, 0, 0.1) 0%, rgba(255, 140, 0, 0.05) 100%);
+            border-color: rgba(255, 165, 0, 0.3);
+        }
+
+        .table {
+            color: #e8eaed;
+        }
+
+        .table-bordered {
+            border-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .table-bordered td, .table-bordered th {
+            border-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .table-light {
+            background: rgba(255, 255, 255, 0.05);
+            color: #e8eaed;
+        }
+
+        code {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 2px 6px;
+            border-radius: 4px;
+            color: #60a5fa;
+        }
+
+        .form-select, .form-control {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #e8eaed;
+            backdrop-filter: blur(10px);
+        }
+
+        .form-select:focus, .form-control:focus {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(59, 130, 246, 0.5);
+            color: #e8eaed;
+            box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.25);
+        }
+
+        .form-select option {
+            background: #131829;
+            color: #e8eaed;
+        }
+
+        .badge {
+            background: rgba(255, 255, 255, 0.1);
+            color: #e8eaed;
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        @media (max-width: 768px) {
+            .sidebar {
+                position: relative;
+                top: 0;
+                border-right: none;
+                border-bottom: 1px solid #dee2e6;
+            }
+            main {
+                margin-left: 0;
+                margin-top: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Navbar -->
+    <nav class="navbar navbar-dark fixed-top">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">
+                <div class="logo-container">
+                    <img src="https://www.kyungwoo.co.kr/images/common/logo.png" alt="Kyungwoo Logo" class="logo-img" onerror="this.style.display='none'">
+                </div>
+                <i class="bi bi-cpu"></i> CIE-H14A Modbus Controller
+            </a>
+            <div class="d-flex">
+                <a href="/" class="btn btn-outline-light btn-sm me-2">
+                    <i class="bi bi-house"></i> 메인
+                </a>
+                <span class="badge">v1.0.0</span>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Sidebar -->
+    <div class="sidebar col-md-3 col-lg-2 d-md-block">
+        <nav class="nav flex-column">
+            <a class="nav-link" href="#overview">개요</a>
+            <a class="nav-link" href="#authentication">인증</a>
+            <a class="nav-link" href="#errors">에러 코드</a>
+            <a class="nav-link fw-bold mt-2" href="#endpoints">엔드포인트</a>
+            <a class="nav-link ms-3" href="#health">Health Check</a>
+            <a class="nav-link ms-3" href="#status">시스템 상태</a>
+            <a class="nav-link ms-3" href="#output-control">출력 제어</a>
+            <a class="nav-link ms-3" href="#output-toggle">출력 토글</a>
+            <a class="nav-link ms-3" href="#config">설정 조회</a>
+            <a class="nav-link ms-3" href="#monitor">모니터링</a>
+            <a class="nav-link ms-3" href="#events">SSE 스트림</a>
+            <a class="nav-link mt-2" href="#examples">사용 예제</a>
+        </nav>
+    </div>
+
+    <!-- Main Content -->
+    <main class="col-md-9 ms-sm-auto col-lg-10">
+        <div class="container-fluid">
+            <!-- Overview -->
+            <section id="overview" class="mb-5">
+                <h1 class="display-4 mb-4">API 문서</h1>
+                <p class="lead">CIE-H14A 4채널 디지털 I/O 컨트롤러를 제어하기 위한 REST API입니다.</p>
+
+                <div class="alert alert-info">
+                    <strong>Base URL:</strong> <code>http://localhost:5000</code><br>
+                    <strong>프로토콜:</strong> HTTP/REST<br>
+                    <strong>데이터 포맷:</strong> JSON
+                </div>
+            </section>
+
+            <!-- Authentication -->
+            <section id="authentication" class="mb-5">
+                <h2>인증</h2>
+                <p>현재 버전에서는 인증이 필요하지 않습니다.</p>
+                <div class="alert alert-warning">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    <strong>주의:</strong> 프로덕션 환경에서는 적절한 인증 메커니즘을 추가해야 합니다.
+                </div>
+            </section>
+
+            <!-- Errors -->
+            <section id="errors" class="mb-5">
+                <h2>에러 코드</h2>
+                <table class="table table-bordered">
+                    <thead class="table-light">
+                        <tr>
+                            <th>HTTP 상태 코드</th>
+                            <th>설명</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>200</code></td>
+                            <td>성공</td>
+                        </tr>
+                        <tr>
+                            <td><code>400</code></td>
+                            <td>잘못된 요청 (파라미터 오류)</td>
+                        </tr>
+                        <tr>
+                            <td><code>404</code></td>
+                            <td>리소스를 찾을 수 없음</td>
+                        </tr>
+                        <tr>
+                            <td><code>500</code></td>
+                            <td>서버 내부 오류 (Modbus 통신 실패 등)</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h5>에러 응답 형식</h5>
+                <pre><code class="language-json">{
+  "error": "에러 메시지 설명"
+}</code></pre>
+            </section>
+
+            <!-- Endpoints -->
+            <section id="endpoints" class="mb-5">
+                <h2>엔드포인트</h2>
+
+                <!-- Health Check -->
+                <div id="health" class="card endpoint-card">
+                    <div class="card-header">
+                        <span class="method-badge method-get">GET</span>
+                        <strong>/health</strong>
+                    </div>
+                    <div class="card-body">
+                        <h5>Health Check</h5>
+                        <p>서버 상태 및 Modbus 연결 상태를 확인합니다.</p>
+
+                        <h6>응답 예제</h6>
+                        <pre><code class="language-json">{
+  "status": "healthy",
+  "modbus_connected": true
+}</code></pre>
+
+                        <button class="btn btn-primary btn-sm try-it-btn" onclick="tryAPI('GET', '/health')">
+                            <i class="bi bi-play-fill"></i> 실행해보기
+                        </button>
+                        <div id="response-health" class="response-output mt-3" style="display:none;"></div>
+                    </div>
+                </div>
+
+                <!-- Status -->
+                <div id="status" class="card endpoint-card">
+                    <div class="card-header">
+                        <span class="method-badge method-get">GET</span>
+                        <strong>/api/status</strong>
+                    </div>
+                    <div class="card-body">
+                        <h5>시스템 상태 조회</h5>
+                        <p>전체 입출력(I/O) 상태를 조회합니다.</p>
+
+                        <h6>응답 예제</h6>
+                        <pre><code class="language-json">{
+  "connected": true,
+  "inputs": [false, true, false, false],
+  "outputs": [false, false, true, false],
+  "timestamp": 1729166400.123
+}</code></pre>
+
+                        <h6>필드 설명</h6>
+                        <ul>
+                            <li><code>connected</code> (boolean): Modbus 연결 상태</li>
+                            <li><code>inputs</code> (array): DI0-DI3 상태 (4개 요소)</li>
+                            <li><code>outputs</code> (array): DO0-DO3 상태 (4개 요소)</li>
+                            <li><code>timestamp</code> (float): UNIX 타임스탬프</li>
+                        </ul>
+
+                        <button class="btn btn-primary btn-sm try-it-btn" onclick="tryAPI('GET', '/api/status')">
+                            <i class="bi bi-play-fill"></i> 실행해보기
+                        </button>
+                        <div id="response-status" class="response-output mt-3" style="display:none;"></div>
+                    </div>
+                </div>
+
+                <!-- Output Control -->
+                <div id="output-control" class="card endpoint-card">
+                    <div class="card-header">
+                        <span class="method-badge method-post">POST</span>
+                        <strong>/api/output/&lt;channel&gt;</strong>
+                    </div>
+                    <div class="card-body">
+                        <h5>출력 제어</h5>
+                        <p>특정 출력 채널을 ON 또는 OFF로 제어합니다.</p>
+
+                        <h6>경로 파라미터</h6>
+                        <ul>
+                            <li><code>channel</code> (integer): 출력 채널 번호 (0-3)</li>
+                        </ul>
+
+                        <h6>요청 본문</h6>
+                        <pre><code class="language-json">{
+  "state": true
+}</code></pre>
+
+                        <h6>응답 예제 (성공)</h6>
+                        <pre><code class="language-json">{
+  "success": true,
+  "channel": 0,
+  "state": true
+}</code></pre>
+
+                        <div class="mt-3">
+                            <label class="form-label">채널:</label>
+                            <select id="output-channel" class="form-select form-select-sm" style="width:100px;display:inline-block;">
+                                <option value="0">0</option>
+                                <option value="1">1</option>
+                                <option value="2">2</option>
+                                <option value="3">3</option>
+                            </select>
+
+                            <label class="form-label ms-3">상태:</label>
+                            <select id="output-state" class="form-select form-select-sm" style="width:100px;display:inline-block;">
+                                <option value="true">ON (true)</option>
+                                <option value="false">OFF (false)</option>
+                            </select>
+
+                            <button class="btn btn-primary btn-sm ms-3" onclick="tryOutputControl()">
+                                <i class="bi bi-play-fill"></i> 실행해보기
+                            </button>
+                        </div>
+                        <div id="response-output-control" class="response-output mt-3" style="display:none;"></div>
+                    </div>
+                </div>
+
+                <!-- Output Toggle -->
+                <div id="output-toggle" class="card endpoint-card">
+                    <div class="card-header">
+                        <span class="method-badge method-post">POST</span>
+                        <strong>/api/output/&lt;channel&gt;/toggle</strong>
+                    </div>
+                    <div class="card-body">
+                        <h5>출력 토글</h5>
+                        <p>특정 출력 채널의 상태를 반전(토글)합니다.</p>
+
+                        <h6>경로 파라미터</h6>
+                        <ul>
+                            <li><code>channel</code> (integer): 출력 채널 번호 (0-3)</li>
+                        </ul>
+
+                        <h6>응답 예제</h6>
+                        <pre><code class="language-json">{
+  "success": true,
+  "channel": 1,
+  "state": true
+}</code></pre>
+
+                        <div class="mt-3">
+                            <label class="form-label">채널:</label>
+                            <select id="toggle-channel" class="form-select form-select-sm" style="width:100px;display:inline-block;">
+                                <option value="0">0</option>
+                                <option value="1">1</option>
+                                <option value="2">2</option>
+                                <option value="3">3</option>
+                            </select>
+
+                            <button class="btn btn-primary btn-sm ms-3" onclick="tryToggle()">
+                                <i class="bi bi-play-fill"></i> 실행해보기
+                            </button>
+                        </div>
+                        <div id="response-toggle" class="response-output mt-3" style="display:none;"></div>
+                    </div>
+                </div>
+
+                <!-- Config -->
+                <div id="config" class="card endpoint-card">
+                    <div class="card-header">
+                        <span class="method-badge method-get">GET</span>
+                        <strong>/api/config</strong>
+                    </div>
+                    <div class="card-body">
+                        <h5>설정 조회</h5>
+                        <p>현재 Modbus TCP 연결 설정을 조회합니다.</p>
+
+                        <h6>응답 예제</h6>
+                        <pre><code class="language-json">{
+  "modbus_host": "192.168.10.105",
+  "modbus_port": 502,
+  "modbus_unit_id": 1,
+  "modbus_timeout": 0.3,
+  "poll_interval": 0.5
+}</code></pre>
+
+                        <button class="btn btn-primary btn-sm try-it-btn" onclick="tryAPI('GET', '/api/config')">
+                            <i class="bi bi-play-fill"></i> 실행해보기
+                        </button>
+                        <div id="response-config" class="response-output mt-3" style="display:none;"></div>
+                    </div>
+                </div>
+
+                <!-- Monitor -->
+                <div id="monitor" class="card endpoint-card">
+                    <div class="card-header">
+                        <span class="method-badge method-get">GET</span>
+                        <strong>/api/monitor</strong>
+                    </div>
+                    <div class="card-body">
+                        <h5>모니터링 정보</h5>
+                        <p>API 서버의 상태 및 통계 정보를 조회합니다.</p>
+
+                        <h6>응답 예제</h6>
+                        <pre><code class="language-json">{
+  "uptime": 3600.5,
+  "total_requests": 1523,
+  "failed_requests": 12,
+  "success_rate": 99.21,
+  "recent_1min": {
+    "requests": 15,
+    "failed": 0,
+    "avg_duration_ms": 12.34
+  },
+  "recent_history": [...],
+  "last_check": 1729166400.123
+}</code></pre>
+
+                        <button class="btn btn-primary btn-sm try-it-btn" onclick="tryAPI('GET', '/api/monitor')">
+                            <i class="bi bi-play-fill"></i> 실행해보기
+                        </button>
+                        <div id="response-monitor" class="response-output mt-3" style="display:none;"></div>
+                    </div>
+                </div>
+
+                <!-- SSE -->
+                <div id="events" class="card endpoint-card">
+                    <div class="card-header">
+                        <span class="method-badge method-get">GET</span>
+                        <strong>/api/events</strong>
+                    </div>
+                    <div class="card-body">
+                        <h5>실시간 이벤트 스트림 (SSE)</h5>
+                        <p>Server-Sent Events를 통해 실시간으로 I/O 상태 변화를 수신합니다.</p>
+
+                        <h6>Content-Type</h6>
+                        <code>text/event-stream</code>
+
+                        <h6>이벤트 데이터</h6>
+                        <pre><code class="language-json">{
+  "connected": true,
+  "inputs": [false, true, false, false],
+  "outputs": [false, false, true, false],
+  "timestamp": 1729166400.123
+}</code></pre>
+
+                        <h6>JavaScript 예제</h6>
+                        <pre><code class="language-javascript">const eventSource = new EventSource('/api/events');
+
+eventSource.onmessage = function(event) {
+  const data = JSON.parse(event.data);
+  console.log('I/O 상태:', data);
+};</code></pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Examples -->
+            <section id="examples" class="mb-5">
+                <h2>사용 예제</h2>
+
+                <h4>Python</h4>
+                <pre><code class="language-python">import requests
+
+BASE_URL = "http://localhost:5000"
+
+# 상태 조회
+response = requests.get(f"{BASE_URL}/api/status")
+status = response.json()
+print(f"연결: {status['connected']}")
+
+# DO0 켜기
+requests.post(
+    f"{BASE_URL}/api/output/0",
+    json={"state": True}
+)</code></pre>
+
+                <h4>curl</h4>
+                <pre><code class="language-bash"># 상태 조회
+curl http://localhost:5000/api/status
+
+# DO0 켜기
+curl -X POST http://localhost:5000/api/output/0 \
+  -H "Content-Type: application/json" \
+  -d '{"state": true}'
+
+# DO1 토글
+curl -X POST http://localhost:5000/api/output/1/toggle</code></pre>
+            </section>
+
+            <!-- Channel Mapping -->
+            <section id="channels" class="mb-5">
+                <h2>채널 매핑</h2>
+
+                <h4>디지털 입력 (DI)</h4>
+                <table class="table table-bordered">
+                    <thead class="table-light">
+                        <tr>
+                            <th>채널</th>
+                            <th>Modbus 주소</th>
+                            <th>설명</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>DI0</td><td>0</td><td>디지털 입력 0</td></tr>
+                        <tr><td>DI1</td><td>1</td><td>디지털 입력 1</td></tr>
+                        <tr><td>DI2</td><td>2</td><td>디지털 입력 2</td></tr>
+                        <tr><td>DI3</td><td>3</td><td>디지털 입력 3</td></tr>
+                    </tbody>
+                </table>
+
+                <h4>디지털 출력 (DO)</h4>
+                <table class="table table-bordered">
+                    <thead class="table-light">
+                        <tr>
+                            <th>채널</th>
+                            <th>Modbus 주소</th>
+                            <th>설명</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>DO0</td><td>8</td><td>디지털 출력 0 (릴레이)</td></tr>
+                        <tr><td>DO1</td><td>9</td><td>디지털 출력 1 (릴레이)</td></tr>
+                        <tr><td>DO2</td><td>10</td><td>디지털 출력 2 (릴레이)</td></tr>
+                        <tr><td>DO3</td><td>11</td><td>디지털 출력 3 (릴레이)</td></tr>
+                    </tbody>
+                </table>
+
+                <div class="alert alert-warning">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    <strong>중요:</strong> 출력 주소는 8부터 시작합니다 (0이 아님).
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- Prism.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+
+    <!-- Interactive API Testing -->
+    <script>
+        // Smooth scrolling for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+                    // Update active link
+                    document.querySelectorAll('.nav-link').forEach(link => {
+                        link.classList.remove('active');
+                    });
+                    this.classList.add('active');
+                }
+            });
+        });
+
+        // Try API function
+        async function tryAPI(method, endpoint) {
+            const outputId = 'response-' + endpoint.replace(/\//g, '-').replace(/^-/, '');
+            const outputElement = document.getElementById(outputId);
+
+            if (!outputElement) {
+                console.error('Output element not found:', outputId);
+                return;
+            }
+
+            outputElement.style.display = 'block';
+            outputElement.textContent = 'Loading...';
+
+            try {
+                const response = await fetch(endpoint, { method });
+                const data = await response.json();
+
+                outputElement.textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                outputElement.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        // Try output control
+        async function tryOutputControl() {
+            const channel = document.getElementById('output-channel').value;
+            const state = document.getElementById('output-state').value === 'true';
+            const outputElement = document.getElementById('response-output-control');
+
+            outputElement.style.display = 'block';
+            outputElement.textContent = 'Loading...';
+
+            try {
+                const response = await fetch(`/api/output/${channel}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ state })
+                });
+                const data = await response.json();
+
+                outputElement.textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                outputElement.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        // Try toggle
+        async function tryToggle() {
+            const channel = document.getElementById('toggle-channel').value;
+            const outputElement = document.getElementById('response-toggle');
+
+            outputElement.style.display = 'block';
+            outputElement.textContent = 'Loading...';
+
+            try {
+                const response = await fetch(`/api/output/${channel}/toggle`, {
+                    method: 'POST'
+                });
+                const data = await response.json();
+
+                outputElement.textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                outputElement.textContent = `Error: ${error.message}`;
+            }
+        }
+    </script>
+</body>
+</html>

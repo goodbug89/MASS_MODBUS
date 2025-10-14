@@ -1,0 +1,50 @@
+services:
+  modbus-controller:
+    build: .
+    container_name: modbus-controller
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=${FLASK_ENV:-production}
+      - MODBUS_HOST=${MODBUS_HOST:-10.1.0.1}
+      - MODBUS_PORT=${MODBUS_PORT:-502}
+      - MODBUS_UNIT_ID=${MODBUS_UNIT_ID:-1}
+      - MODBUS_TIMEOUT=${MODBUS_TIMEOUT:-0.3}
+      - POLL_INTERVAL=${POLL_INTERVAL:-0.5}
+      - OUTPUT_AUTO_OFF_TIME=${OUTPUT_AUTO_OFF_TIME:-1.0}
+      - OUTPUT_RETRY_COUNT=${OUTPUT_RETRY_COUNT:-3}
+      - OUTPUT_RETRY_DELAY=${OUTPUT_RETRY_DELAY:-0.1}
+      - SECRET_KEY=${SECRET_KEY:-change-this-secret-key-in-production}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    env_file:
+      - .env
+    # 호스트 네트워크 모드 사용 (CIE-H14A 접근용)
+    # network_mode: host
+    # 위 옵션을 사용하면 ports 설정이 무시됩니다.
+    # 필요시 주석을 해제하고 ports를 주석 처리하세요.
+    networks:
+      - modbus-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+networks:
+  modbus-network:
+    driver: bridge

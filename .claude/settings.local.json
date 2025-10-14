@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "Bash(tree:*)",
+      "Bash(python:*)",
+      "Bash(docker:*)",
+      "Bash(docker-compose:*)",
+      "Bash(curl:*)",
+      "Bash(npx --version)",
+      "Bash(node:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(tasklist)",
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nRelease v1.0.0 - Dark Mode Glass Morphism UI\n\nMajor Features:\n- 다크모드 테마 적용\n- Glass Morphism 디자인 (반투명 유리 효과)\n- 경우시스테크(Kyungwoo) 로고 추가\n- 네온 글로우 효과 (LED, 버튼)\n- 부드러운 애니메이션 및 호버 효과\n- 반응형 디자인 (모바일/태블릿/데스크톱)\n\nTechnical Stack:\n- Backend: Python 3.11+, Flask 3.0, Gunicorn\n- Modbus: pyModbusTCP 0.2.0\n- Frontend: HTML5, CSS3, Vanilla JavaScript, Bootstrap 5\n- Real-time: Server-Sent Events (SSE)\n- Containerization: Docker & Docker Compose\n\nSystem Architecture:\n- 큐 기반 비동기 아키텍처 (절대 안 죽는 시스템)\n- 백그라운드 폴링 스레드 (0.5초 주기)\n- SSE 실시간 업데이트 (지수 백오프)\n- API 모니터링 시스템 (5초 주기)\n- Modbus TCP/IP 통신 (0.3초 타임아웃)\n\n🤖 Generated with Claude Code\nhttps://claude.com/claude-code\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git tag:*)",
+      "Bash(git commit:*)"
+    ],
+    "deny": [],
+    "ask": []
+  },
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@upstash/context7-mcp@latest"
+      ]
+    }
+  }
+}
