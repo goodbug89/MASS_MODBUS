@@ -454,7 +454,8 @@ def sse_stream():
                 # 상태 변화가 있을 때만 전송 (효율성)
                 if (status['inputs'] != prev_status['inputs'] or
                     status['outputs'] != prev_status['outputs'] or
-                    status['connected'] != prev_status['connected']):
+                    status['connected'] != prev_status['connected'] or
+                    status.get('di_detection', {}) != prev_status.get('di_detection', {})):
 
                     yield f"data: {json.dumps(status)}\n\n"
                     prev_status = status.copy()

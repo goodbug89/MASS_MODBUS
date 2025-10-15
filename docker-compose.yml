@@ -6,6 +6,7 @@ services:
     ports:
       - "5000:5000"
     environment:
+      - TZ=Asia/Seoul
       - FLASK_ENV=${FLASK_ENV:-production}
       - MODBUS_HOST=${MODBUS_HOST:-10.1.0.1}
       - MODBUS_PORT=${MODBUS_PORT:-502}

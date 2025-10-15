@@ -315,17 +315,17 @@ function updateDIDetectionStatus(diDetection) {
         if (diDetection.di_triggered && diDetection.request_sent) {
             // DI ON 상태 + 요청 전송 완료
             stateBadge.className = 'badge bg-danger';
-            statebadge.innerHTML = '<i class="bi bi-circle-fill"></i> DI 수신 종료 대기';
+            stateBadge.innerHTML = '<i class="bi bi-circle-fill"></i> DI 감지 - 종료 대기';
             requestBadge.style.display = 'inline-block';
         } else if (diDetection.di_triggered && !diDetection.request_sent) {
             // DI ON 상태 + 요청 전송 중
-            statesBadge.className = 'badge bg-warning';
-            statesBadge.innerHTML = '<i class="bi bi-circle-fill"></i> 요청 전송 중...';
+            stateBadge.className = 'badge bg-warning';
+            stateBadge.innerHTML = '<i class="bi bi-circle-fill"></i> 요청 전송 중...';
             requestBadge.style.display = 'none';
         } else {
             // DI OFF 상태 - 대기 중
-            statesBadge.className = 'badge bg-success';
-            statesBadge.innerHTML = '<i class="bi bi-circle-fill"></i> DI 수신 대기';
+            stateBadge.className = 'badge bg-success';
+            stateBadge.innerHTML = '<i class="bi bi-circle-fill"></i> DI 수신 대기';
             requestBadge.style.display = 'none';
         }
     } else {
