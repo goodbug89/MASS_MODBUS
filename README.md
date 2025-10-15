@@ -1,22 +1,27 @@
-# CIE-H14A Modbus TCP/IP 제어 시스템
+# CIE-H14A Modbus TCP/IP 멀티 제어 시스템
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.11+-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/Flask-3.0-green.svg" alt="Flask">
   <img src="https://img.shields.io/badge/Docker-Ready-blue.svg" alt="Docker">
+  <img src="https://img.shields.io/badge/Multi--Device-8-brightgreen.svg" alt="Multi-Device">
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License">
 </p>
 
-CIE-H14A 4채널 원격 I/O 컨트롤러를 Modbus TCP/IP 프로토콜을 통해 웹에서 모니터링하고 제어하는 시스템입니다.
+**최대 8대**의 CIE-H14A 4채널 원격 I/O 컨트롤러를 Modbus TCP/IP 프로토콜을 통해 웹에서 동시에 모니터링하고 제어하는 시스템입니다.
 
 ## 주요 기능
 
-- 🔌 **4채널 디지털 입력 모니터링**: 실시간 입력 상태 표시
-- ⚡ **4채널 디지털 출력 제어**: 웹 인터페이스를 통한 릴레이 제어
+- 🚀 **멀티 디바이스 지원**: 최대 8대 장비 동시 제어
+- 🔌 **4채널 디지털 입력 모니터링**: 실시간 입력 상태 표시 (각 장비당 4채널)
+- ⚡ **4채널 디지털 출력 제어**: 웹 인터페이스를 통한 릴레이 제어 (각 장비당 4채널)
 - 🔄 **실시간 업데이트**: Server-Sent Events를 통한 자동 상태 갱신
-- 🎨 **반응형 디자인**: 모바일, 태블릿, 데스크톱 지원
+- 🎨 **Glass Morphism UI**: 다크모드 + 반투명 유리 효과 디자인
+- 📱 **반응형 디자인**: 모바일, 태블릿, 데스크톱 지원
 - 🐳 **Docker 지원**: 간편한 배포 및 실행
-- 🔧 **자동 재연결**: 연결 끊김 시 자동 재연결 시도
+- 🔧 **자동 재연결**: 각 장비별 독립적인 자동 재연결
+- 📊 **통합 모니터링**: 모든 장비의 상태를 한 화면에서 확인
+- 🔒 **보안 강화**: OWASP 기반 입력 검증 및 XSS 방지
 
 ## 빠른 시작
 
@@ -31,7 +36,26 @@ CIE-H14A 4채널 원격 I/O 컨트롤러를 Modbus TCP/IP 프로토콜을 통해
 1. **환경 설정**
    ```bash
    cp .env.example .env
-   # .env 파일을 편집하여 Modbus 설정 입력
+   # .env 파일을 편집하여 각 장비의 IP 주소 설정
+   ```
+
+   최소 설정 예시 (4대 장비):
+   ```env
+   DEVICE1_ENABLED=true
+   DEVICE1_NAME=Lane1
+   DEVICE1_HOST=192.168.10.101
+
+   DEVICE2_ENABLED=true
+   DEVICE2_NAME=Lane2
+   DEVICE2_HOST=192.168.10.102
+
+   DEVICE3_ENABLED=true
+   DEVICE3_NAME=Lane3
+   DEVICE3_HOST=192.168.10.103
+
+   DEVICE4_ENABLED=true
+   DEVICE4_NAME=Lane4
+   DEVICE4_HOST=192.168.10.104
    ```
 
 2. **실행**
@@ -42,6 +66,11 @@ CIE-H14A 4채널 원격 I/O 컨트롤러를 Modbus TCP/IP 프로토콜을 통해
 3. **접속**
 
    브라우저에서 `http://localhost:5000` 접속
+
+4. **로그 확인**
+   ```bash
+   docker-compose logs -f
+   ```
 
 ### 로컬에서 실행
 
@@ -74,17 +103,66 @@ CIE-H14A 4채널 원격 I/O 컨트롤러를 Modbus TCP/IP 프로토콜을 통해
 
 ## 환경 변수 설정
 
-`.env` 파일에서 다음 설정을 구성할 수 있습니다:
+### 전역 기본값 설정
+
+`.env` 파일에서 모든 장비에 공통으로 적용되는 기본값을 설정합니다:
 
 | 변수 | 설명 | 기본값 |
 |------|------|--------|
-| `MODBUS_HOST` | CIE-H14A IP 주소 | 10.1.0.1 |
-| `MODBUS_PORT` | Modbus TCP 포트 | 502 |
-| `MODBUS_UNIT_ID` | Modbus Unit ID | 1 |
-| `MODBUS_TIMEOUT` | 연결 타임아웃 (초) | 5.0 |
-| `POLL_INTERVAL` | 폴링 간격 (초) | 0.5 |
+| `MODBUS_DEFAULT_PORT` | Modbus TCP 포트 | 502 |
+| `MODBUS_DEFAULT_UNIT_ID` | Modbus Unit ID | 1 |
+| `MODBUS_DEFAULT_TIMEOUT` | 연결 타임아웃 (초) | 0.3 |
+| `MODBUS_DEFAULT_POLL_INTERVAL` | 폴링 간격 (초) | 0.5 |
+| `MODBUS_DEFAULT_AUTO_OFF_TIME` | 자동 OFF 시간 (초) | 1.0 |
+| `MODBUS_DEFAULT_RETRY_COUNT` | 재시도 횟수 | 3 |
+| `MODBUS_DEFAULT_RETRY_DELAY` | 재시도 간격 (초) | 0.1 |
+| `SENSOR_URL` | 센서 API URL (공통) | http://localhost:5000/api/get_sensor |
 | `FLASK_ENV` | Flask 환경 | production |
-| `SECRET_KEY` | Flask 시크릿 키 | (변경 필요) |
+| `SECRET_KEY` | Flask 시크릿 키 | (변경 필수) |
+
+### 장비별 설정
+
+각 장비(DEVICE1-8)마다 개별 설정이 가능합니다:
+
+| 변수 패턴 | 설명 | 필수 여부 |
+|----------|------|-----------|
+| `DEVICE{N}_ENABLED` | 장비 활성화 여부 (true/false) | **필수** |
+| `DEVICE{N}_NAME` | 장비 이름 (예: Lane1) | **필수** |
+| `DEVICE{N}_HOST` | 장비 IP 주소 | **필수** |
+| `DEVICE{N}_PORT` | 개별 포트 (기본값 사용 시 생략 가능) | 선택 |
+| `DEVICE{N}_UNIT_ID` | 개별 Unit ID (기본값 사용 시 생략 가능) | 선택 |
+| `DEVICE{N}_TIMEOUT` | 개별 타임아웃 (기본값 사용 시 생략 가능) | 선택 |
+| `DEVICE{N}_POLL_INTERVAL` | 개별 폴링 간격 (기본값 사용 시 생략 가능) | 선택 |
+| `DEVICE{N}_SENSOR_URL` | 개별 센서 URL (공통 URL 사용 시 생략 가능) | 선택 |
+
+**설정 예시**:
+
+```env
+# 전역 기본값
+MODBUS_DEFAULT_PORT=502
+MODBUS_DEFAULT_UNIT_ID=1
+SENSOR_URL=http://localhost:5000/api/get_sensor
+
+# 장비 1 (최소 설정 - 기본값 사용)
+DEVICE1_ENABLED=true
+DEVICE1_NAME=Lane1
+DEVICE1_HOST=192.168.10.101
+
+# 장비 2 (개별 포트 설정)
+DEVICE2_ENABLED=true
+DEVICE2_NAME=Lane2
+DEVICE2_HOST=192.168.10.102
+DEVICE2_PORT=5020
+
+# 장비 3-4 (최소 설정)
+DEVICE3_ENABLED=true
+DEVICE3_NAME=Lane3
+DEVICE3_HOST=192.168.10.103
+
+DEVICE4_ENABLED=true
+DEVICE4_NAME=Lane4
+DEVICE4_HOST=192.168.10.104
+```
 
 ## 프로젝트 구조
 
@@ -120,28 +198,32 @@ MASS_MODBUS/
 
 ## API 문서
 
-### REST API 엔드포인트
+### 멀티 디바이스 API 엔드포인트
 
 | 엔드포인트 | 메서드 | 설명 |
 |-----------|--------|------|
 | `/` | GET | 메인 웹 페이지 |
 | `/health` | GET | 헬스 체크 |
-| `/api/status` | GET | 전체 입출력 상태 조회 |
-| `/api/output/<channel>` | POST | 출력 채널 제어 |
-| `/api/output/<channel>/toggle` | POST | 출력 채널 토글 |
-| `/api/events` | GET | SSE 스트림 |
+| `/api/status` | GET | **모든 장비** 상태 조회 |
+| `/api/devices` | GET | 장비 목록 조회 |
+| `/api/devices/<device_id>/status` | GET | 특정 장비 상태 조회 |
+| `/api/devices/<device_id>/output/<channel>` | POST | 특정 장비 출력 제어 |
+| `/api/devices/<device_id>/output/<channel>/toggle` | POST | 특정 장비 출력 토글 |
+| `/api/events` | GET | **모든 장비** SSE 스트림 |
 | `/api/config` | GET | 현재 설정 조회 |
+
+### 하위 호환 API (레거시)
+
+기존 단일 장비 API도 계속 지원됩니다 (첫 번째 장비로 자동 라우팅):
+
+| 엔드포인트 | 메서드 | 설명 |
+|-----------|--------|------|
+| `/api/output/<channel>` | POST | 첫 번째 장비 출력 제어 |
+| `/api/output/<channel>/toggle` | POST | 첫 번째 장비 출력 토글 |
 
 ### 사용 예시
 
-**출력 제어**
-```bash
-curl -X POST http://localhost:5000/api/output/0 \
-  -H "Content-Type: application/json" \
-  -d '{"state": true}'
-```
-
-**상태 조회**
+**모든 장비 상태 조회**
 ```bash
 curl http://localhost:5000/api/status
 ```
@@ -149,11 +231,50 @@ curl http://localhost:5000/api/status
 응답:
 ```json
 {
-  "connected": true,
-  "inputs": [false, true, false, true],
-  "outputs": [true, false, false, true],
-  "timestamp": 1697186400.123
+  "devices": {
+    "device1": {
+      "name": "Lane1",
+      "host": "192.168.10.101",
+      "connected": true,
+      "inputs": [false, true, false, true],
+      "outputs": [true, false, false, true],
+      "timestamp": 1697186400.123
+    },
+    "device2": {
+      "name": "Lane2",
+      "host": "192.168.10.102",
+      "connected": true,
+      "inputs": [true, false, false, false],
+      "outputs": [false, true, false, true],
+      "timestamp": 1697186400.456
+    }
+  }
 }
+```
+
+**특정 장비 출력 제어**
+```bash
+curl -X POST http://localhost:5000/api/devices/device1/output/0 \
+  -H "Content-Type: application/json" \
+  -d '{"state": true}'
+```
+
+**특정 장비 출력 토글**
+```bash
+curl -X POST http://localhost:5000/api/devices/device2/output/3/toggle \
+  -H "Content-Type: application/json"
+```
+
+**SSE 스트림 (모든 장비 실시간 업데이트)**
+```bash
+curl http://localhost:5000/api/events
+```
+
+응답:
+```
+data: {"type":"initial","devices":{"device1":{...},"device2":{...}}}
+
+data: {"type":"update","devices":{"device1":{"inputs":[true,false,false,false]}}}
 ```
 
 ## 개발
@@ -201,21 +322,50 @@ CIE-H14A 하드웨어 사양:
 - **Real-time**: Server-Sent Events (SSE)
 - **WSGI Server**: Gunicorn
 
+## 멀티 디바이스 아키텍처
+
+### 핵심 설계
+
+- **독립적인 연결 관리**: 각 장비는 독립적인 Modbus 클라이언트 인스턴스를 가짐
+- **독립적인 폴링**: 각 장비마다 별도의 백그라운드 폴링 스레드 실행
+- **독립적인 상태 관리**: 한 장비의 연결 실패가 다른 장비에 영향 없음
+- **통합 모니터링**: 웹 UI에서 모든 장비를 한 화면에서 관리
+- **효율적인 SSE**: 변경된 장비의 상태만 전송 (대역폭 최적화)
+
+### 확장성
+
+- 현재: 최대 8대까지 지원
+- 필요 시 `config/config.py`에서 `range(1, 9)`를 수정하여 더 많은 장비 지원 가능
+- 각 장비는 별도 IP 주소 또는 별도 포트 사용 가능
+
 ## 트러블슈팅
 
 ### Modbus 연결 실패
 
-**문제**: `Modbus 연결 실패: 10.1.0.1:502`
+**문제**: 특정 장비 연결 실패 `[device1] Modbus 연결 실패: 192.168.10.101:502`
 
 **해결**:
-1. CIE-H14A 전원 및 네트워크 연결 확인
-2. IP 주소 핑 테스트: `ping 10.1.0.1`
+1. 해당 장비의 전원 및 네트워크 연결 확인
+2. IP 주소 핑 테스트: `ping 192.168.10.101`
 3. 방화벽 포트 502 개방 확인
-4. CIE-H14A에서 Modbus TCP 활성화 확인
+4. CIE-H14A에서 Modbus TCP 활성화 확인 (ezManager 도구 사용)
+5. `.env` 파일에서 해당 장비의 `DEVICE{N}_ENABLED=true` 확인
+
+**참고**: 한 장비의 연결 실패가 다른 장비에는 영향을 주지 않습니다.
+
+### 일부 장비만 표시됨
+
+**문제**: 웹 UI에서 일부 장비만 보임
+
+**해결**:
+1. `.env` 파일에서 `DEVICE{N}_ENABLED=true` 확인
+2. `DEVICE{N}_HOST`가 올바르게 설정되었는지 확인
+3. 서버 재시작: `docker-compose restart`
+4. 로그 확인: `docker-compose logs -f`
 
 ### Docker 네트워크 이슈
 
-**문제**: 컨테이너에서 호스트 네트워크 접근 불가
+**문제**: 컨테이너에서 호스트 네트워크의 장비 접근 불가
 
 **해결**: `docker-compose.yml`에서 `network_mode: host` 사용
 
@@ -232,6 +382,31 @@ netstat -ano | findstr :5000
 lsof -i :5000
 
 # 프로세스 종료 후 다시 실행
+```
+
+### 시뮬레이터로 테스트
+
+**로컬 시뮬레이터 사용 시**:
+
+```env
+# 각 장비마다 다른 포트 사용
+DEVICE1_HOST=127.0.0.1
+DEVICE1_PORT=5020
+
+DEVICE2_HOST=127.0.0.1
+DEVICE2_PORT=5021
+
+DEVICE3_HOST=127.0.0.1
+DEVICE3_PORT=5022
+
+DEVICE4_HOST=127.0.0.1
+DEVICE4_PORT=5023
+```
+
+시뮬레이터 실행:
+```bash
+# tests/modbus_simulator.py 사용
+python tests/modbus_simulator.py
 ```
 
 ## Claude Code 활용
@@ -255,6 +430,29 @@ claude-code "modbus_client.py에 대한 단위 테스트 작성해줘"
 
 이 프로젝트는 MIT 라이선스 하에 배포됩니다.
 
+## 버전 이력
+
+### v2.0.0 (2025-01-XX)
+- 🚀 **멀티 디바이스 지원**: 최대 8대 장비 동시 제어
+- 🎨 Glass Morphism UI 디자인
+- 📊 통합 모니터링 대시보드
+- 🔒 OWASP 기반 보안 강화
+- ⚡ SSE 최적화 (변경된 장비만 전송)
+- 📝 장비별 독립 로깅
+- 🔄 하위 호환성 유지 (레거시 API)
+
+### v1.0.0 (2025-01-XX)
+- ✨ 초기 릴리스 (단일 장비 제어)
+- 🎨 다크모드 UI
+- 🔄 실시간 SSE 업데이트
+- 🐳 Docker 지원
+
+## 관련 문서
+
+- [MULTI_DEVICE_ARCHITECTURE_ANALYSIS.md](MULTI_DEVICE_ARCHITECTURE_ANALYSIS.md) - 멀티 디바이스 아키텍처 상세 분석
+- [MULTI_DEVICE_SETUP_GUIDE.md](MULTI_DEVICE_SETUP_GUIDE.md) - 멀티 디바이스 설정 가이드
+- [CLAUDE.md](CLAUDE.md) - Claude Code 개발 가이드
+
 ## 관련 링크
 
 - [CIE-H14A 제품 페이지](https://www.sollae.co.kr/)
@@ -266,3 +464,5 @@ claude-code "modbus_client.py에 대한 단위 테스트 작성해줘"
 ---
 
 **Made with ❤️ for Industrial IoT**
+
+🚀 **v2.0.0 - Now supporting up to 8 devices simultaneously!**

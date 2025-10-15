@@ -1,26 +1,34 @@
 services:
   modbus-controller:
     build: .
-    container_name: modbus-controller
+    container_name: modbus-controller-multi
     restart: unless-stopped
     ports:
       - "5000:5000"
     environment:
       - TZ=Asia/Seoul
       - FLASK_ENV=${FLASK_ENV:-production}
-      - MODBUS_HOST=${MODBUS_HOST:-10.1.0.1}
-      - MODBUS_PORT=${MODBUS_PORT:-502}
-      - MODBUS_UNIT_ID=${MODBUS_UNIT_ID:-1}
-      - MODBUS_TIMEOUT=${MODBUS_TIMEOUT:-0.3}
-      - POLL_INTERVAL=${POLL_INTERVAL:-0.5}
-      - OUTPUT_AUTO_OFF_TIME=${OUTPUT_AUTO_OFF_TIME:-1.0}
-      - OUTPUT_RETRY_COUNT=${OUTPUT_RETRY_COUNT:-3}
-      - OUTPUT_RETRY_DELAY=${OUTPUT_RETRY_DELAY:-0.1}
       - SECRET_KEY=${SECRET_KEY:-change-this-secret-key-in-production}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+
+      # 전역 Modbus 기본값 (모든 장비에 공통 적용)
+      - MODBUS_DEFAULT_PORT=${MODBUS_DEFAULT_PORT:-502}
+      - MODBUS_DEFAULT_UNIT_ID=${MODBUS_DEFAULT_UNIT_ID:-1}
+      - MODBUS_DEFAULT_TIMEOUT=${MODBUS_DEFAULT_TIMEOUT:-0.3}
+      - MODBUS_DEFAULT_POLL_INTERVAL=${MODBUS_DEFAULT_POLL_INTERVAL:-0.5}
+      - MODBUS_DEFAULT_AUTO_OFF_TIME=${MODBUS_DEFAULT_AUTO_OFF_TIME:-1.0}
+      - MODBUS_DEFAULT_RETRY_COUNT=${MODBUS_DEFAULT_RETRY_COUNT:-3}
+      - MODBUS_DEFAULT_RETRY_DELAY=${MODBUS_DEFAULT_RETRY_DELAY:-0.1}
+
+      # 센서 URL (공통)
+      - SENSOR_URL=${SENSOR_URL:-http://localhost:5000/api/get_sensor}
+
+      # 장비 1-4 설정 (.env 파일에서 로드)
+      # DEVICE1_ENABLED, DEVICE1_NAME, DEVICE1_HOST 등은 .env 파일에서 자동 로드됨
+
     env_file:
       - .env
-    # 호스트 네트워크 모드 사용 (CIE-H14A 접근용)
+    # 호스트 네트워크 모드 사용 (여러 CIE-H14A 장비 접근용)
     # network_mode: host
     # 위 옵션을 사용하면 ports 설정이 무시됩니다.
     # 필요시 주석을 해제하고 ports를 주석 처리하세요.
@@ -40,11 +48,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 512M
+          cpus: '2.0'      # 멀티 디바이스를 위해 CPU 증가
+          memory: 1G        # 멀티 디바이스를 위해 메모리 증가
         reservations:
-          cpus: '0.25'
-          memory: 128M
+          cpus: '0.5'
+          memory: 256M
 
 networks:
   modbus-network:

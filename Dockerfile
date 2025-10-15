@@ -1,4 +1,5 @@
-# CIE-H14A Modbus Controller Dockerfile
+# CIE-H14A Multi-Device Modbus Controller Dockerfile
+# 최대 8대의 CIE-H14A 장비를 동시에 제어
 
 # Python 3.11 기반 이미지 사용
 FROM python:3.11-slim
@@ -29,6 +30,7 @@ ENV FLASK_ENV=production
 ENV PYTHONUNBUFFERED=1
 
 # Gunicorn을 사용한 프로덕션 서버 실행
-# 중요: --workers 1 로 단일 워커 사용 (Modbus 단일 연결 유지)
-# SSE 때문에 스레드를 충분히 확보 (최소 10개)
+# 중요: --workers 1 로 단일 워커 사용 (각 Modbus 클라이언트는 독립적인 연결 유지)
+# 멀티 디바이스 지원을 위해 스레드를 충분히 확보 (최소 20개)
+# 각 장비당 별도의 폴링 스레드 + SSE 연결을 위한 스레드 필요
 CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "20", "--timeout", "300", "--graceful-timeout", "30", "--keep-alive", "5", "--access-logfile", "-", "--error-logfile", "-", "app:create_app()"]
