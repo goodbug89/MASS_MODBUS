@@ -98,10 +98,23 @@ body::before {
     align-items: center;
     gap: 0.5rem;
     padding: 0.3rem 0.8rem;
-    background: var(--glass-bg);
+    background: linear-gradient(135deg, rgba(0, 61, 122, 0.3) 0%, rgba(228, 30, 38, 0.2) 100%);
     border: 1px solid var(--glass-border);
     border-radius: 10px;
     backdrop-filter: blur(10px);
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.logo-container::before {
+    content: '경우';
+    font-size: 1.3rem;
+    font-weight: 900;
+    background: linear-gradient(135deg, #00ff88 0%, #00aaff 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    letter-spacing: 1px;
 }
 
 .logo-img {
@@ -278,14 +291,36 @@ body::before {
     transition: width 0.3s ease;
 }
 
-/* 디지털 입력 인디케이터 */
+/* 멀티 디바이스 카드 스타일 */
+.device-card {
+    border: 2px solid var(--glass-border);
+    border-radius: 20px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(15px) saturate(180%);
+    transition: all 0.3s ease;
+    overflow: hidden;
+}
+
+.device-card:hover {
+    transform: translateY(-8px);
+    box-shadow: 0 15px 50px rgba(0, 255, 136, 0.2);
+    border-color: rgba(0, 255, 136, 0.3);
+}
+
+.device-card .card-header.bg-primary {
+    background: linear-gradient(135deg, rgba(0, 100, 255, 0.2) 0%, rgba(0, 61, 122, 0.15) 100%) !important;
+    border-bottom: 1px solid rgba(0, 100, 255, 0.3) !important;
+}
+
+/* 디지털 입력 인디케이터 (멀티 디바이스용 - 작게) */
 .input-indicator {
-    padding: 2rem 1.5rem;
-    border-radius: 15px;
+    padding: 1rem 0.8rem;
+    border-radius: 12px;
     background: rgba(255, 255, 255, 0.03);
     border: 1px solid var(--glass-border);
     transition: all 0.3s ease;
     backdrop-filter: blur(10px);
+    text-align: center;
 }
 
 .input-indicator:hover {
@@ -295,7 +330,7 @@ body::before {
 }
 
 .input-indicator i {
-    font-size: 3rem;
+    font-size: 2rem;
     transition: all 0.3s ease;
 }
 
@@ -349,8 +384,8 @@ body::before {
 
 .output-btn {
     width: 100%;
-    height: 160px;
-    border-radius: 15px;
+    height: 120px;
+    border-radius: 12px;
     border: 2px solid var(--glass-border);
     background: var(--glass-bg);
     backdrop-filter: blur(10px);
@@ -358,6 +393,7 @@ body::before {
     position: relative;
     overflow: hidden;
     color: var(--text-primary);
+    font-size: 0.9rem;
 }
 
 .output-btn::before {
@@ -379,7 +415,7 @@ body::before {
 }
 
 .output-btn i {
-    font-size: 2.8rem;
+    font-size: 2rem;
     position: relative;
     z-index: 1;
 }

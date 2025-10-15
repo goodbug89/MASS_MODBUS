@@ -1,18 +1,21 @@
 """
 Flask 애플리케이션 팩토리
 
-애플리케이션 초기화 및 설정을 담당합니다.
+멀티 디바이스 지원 - 최대 8대의 CIE-H14A 장비를 동시 제어합니다.
 """
 
 import logging
 import time
 from collections import deque
+from typing import Dict
 from flask import Flask
 from config.config import get_config
 from app.modbus_client import CIE_H14A_Client
 
-# 전역 Modbus 클라이언트 인스턴스 (중요: 단일 연결 유지)
-modbus_client: CIE_H14A_Client = None
+# 전역 Modbus 클라이언트 딕셔너리 (멀티 디바이스 지원)
+# Key: device_id (예: 'device1', 'device2', ...)
+# Value: CIE_H14A_Client 인스턴스
+modbus_clients: Dict[str, CIE_H14A_Client] = {}
 
 # API 모니터링 데이터 (최근 100개 기록)
 api_monitor_data = {
@@ -40,11 +43,22 @@ def create_app(config_name: str = None) -> Flask:
     config = get_config(config_name)
     app.config.from_object(config)
 
+    # 장비 설정 초기화
+    devices_config = config.init_devices_config()
+    app.config['DEVICES'] = devices_config  # Flask app config에 명시적으로 설정
+
     # 로깅 설정
     setup_logging(app)
 
-    # Modbus 클라이언트 초기화
-    init_modbus_client(app)
+    # 설정 검증
+    try:
+        config.validate_devices_config()
+    except ValueError as e:
+        app.logger.error(f"Configuration validation failed: {e}")
+        raise
+
+    # Modbus 클라이언트 초기화 (멀티 디바이스)
+    init_modbus_clients(app)
 
     # 라우트 등록
     register_routes(app)
@@ -52,7 +66,7 @@ def create_app(config_name: str = None) -> Flask:
     # 애플리케이션 이벤트 핸들러
     register_app_handlers(app)
 
-    app.logger.info(f"Flask 애플리케이션 초기화 완료: {config_name or 'default'} 환경")
+    app.logger.info(f"Flask application initialized: {config_name or 'default'} environment")
 
     return app
 
@@ -72,48 +86,72 @@ def setup_logging(app: Flask) -> None:
     app.logger.setLevel(log_level)
 
 
-def init_modbus_client(app: Flask) -> None:
+def init_modbus_clients(app: Flask) -> None:
     """
-    Modbus 클라이언트 초기화
+    Modbus 클라이언트 초기화 (멀티 디바이스)
 
-    전역 modbus_client 인스턴스를 생성하고 연결합니다.
-    중요: 단일 Modbus 연결만 유지해야 합니다.
+    전역 modbus_clients 딕셔너리에 각 장비의 클라이언트를 생성하고 연결합니다.
+    각 장비는 독립적인 스레드에서 폴링합니다.
 
     Args:
         app: Flask 애플리케이션
     """
-    global modbus_client
+    global modbus_clients
 
-    app.logger.info("Modbus 클라이언트 초기화 중...")
+    app.logger.info("Initializing Modbus clients (multi-device)...")
 
-    modbus_client = CIE_H14A_Client(
-        host=app.config['MODBUS_HOST'],
-        port=app.config['MODBUS_PORT'],
-        unit_id=app.config['MODBUS_UNIT_ID'],
-        timeout=app.config['MODBUS_TIMEOUT'],
-        poll_interval=app.config['POLL_INTERVAL'],
-        auto_off_time=app.config['OUTPUT_AUTO_OFF_TIME'],
-        retry_count=app.config['OUTPUT_RETRY_COUNT'],
-        retry_delay=app.config['OUTPUT_RETRY_DELAY'],
-        sensor_url=app.config.get('SENSOR_URL'),
-        sensor_device_id=app.config.get('SENSOR_DEVICE_ID')
-    )
+    devices_config = app.config['DEVICES']
 
-    # 연결 시도
-    if modbus_client.connect():
+    if not devices_config:
+        app.logger.error("No devices configured!")
+        raise ValueError("No devices configured. Please check .env file.")
+
+    success_count = 0
+
+    for device_id, device_config in devices_config.items():
         app.logger.info(
-            f"Modbus 연결 성공: {app.config['MODBUS_HOST']}:{app.config['MODBUS_PORT']}"
+            f"[{device_id}] Initializing {device_config['name']} "
+            f"({device_config['host']}:{device_config['port']})..."
         )
-        # 백그라운드 폴링 시작
-        modbus_client.start_polling()
-        app.logger.info("Modbus 폴링 시작")
-    else:
-        app.logger.warning(
-            f"Modbus 초기 연결 실패: {app.config['MODBUS_HOST']}:{app.config['MODBUS_PORT']} "
-            "(재연결은 자동으로 시도됩니다)"
+
+        # CIE_H14A_Client 인스턴스 생성
+        client = CIE_H14A_Client(
+            host=device_config['host'],
+            port=device_config['port'],
+            unit_id=device_config['unit_id'],
+            timeout=device_config['timeout'],
+            poll_interval=device_config['poll_interval'],
+            auto_off_time=device_config['auto_off_time'],
+            retry_count=device_config['retry_count'],
+            retry_delay=device_config['retry_delay'],
+            sensor_url=device_config.get('sensor_url'),
+            sensor_device_id=device_id  # 장비 ID를 전달 (DI 감지 시 사용)
         )
-        # 연결 실패해도 폴링 시작 (자동 재연결 시도)
-        modbus_client.start_polling()
+
+        # 연결 시도
+        if client.connect():
+            app.logger.info(
+                f"[{device_id}] Modbus connection successful: "
+                f"{device_config['host']}:{device_config['port']}"
+            )
+            success_count += 1
+        else:
+            app.logger.warning(
+                f"[{device_id}] Modbus initial connection failed "
+                f"(auto-reconnect will be attempted)"
+            )
+
+        # 폴링 시작 (연결 실패해도 자동 재연결 시도)
+        client.start_polling()
+        app.logger.info(f"[{device_id}] Polling started")
+
+        # 클라이언트 등록
+        modbus_clients[device_id] = client
+
+    app.logger.info(
+        f"Modbus clients initialization complete: "
+        f"{success_count}/{len(devices_config)} devices connected"
+    )
 
 
 def register_routes(app: Flask) -> None:
@@ -125,7 +163,7 @@ def register_routes(app: Flask) -> None:
     """
     from app.routes import bp
     app.register_blueprint(bp)
-    app.logger.info("라우트 등록 완료")
+    app.logger.info("Routes registered")
 
 
 def register_app_handlers(app: Flask) -> None:
@@ -202,20 +240,30 @@ def register_app_handlers(app: Flask) -> None:
         pass
 
 
-def shutdown_modbus_client():
+def shutdown_modbus_clients():
     """
-    Modbus 클라이언트 종료
+    Modbus 클라이언트 종료 (멀티 디바이스)
 
-    애플리케이션 종료 시 호출되어야 합니다.
+    애플리케이션 종료 시 호출되어 모든 장비의 연결을 종료합니다.
     """
-    global modbus_client
-    if modbus_client:
-        logging.info("Modbus 클라이언트 종료 중...")
-        modbus_client.stop_polling()
-        modbus_client.disconnect()
-        logging.info("Modbus 클라이언트 종료 완료")
+    global modbus_clients
+
+    if modbus_clients:
+        logging.info("Shutting down Modbus clients...")
+
+        for device_id, client in modbus_clients.items():
+            logging.info(f"[{device_id}] Stopping polling...")
+            client.stop_polling()
+
+            logging.info(f"[{device_id}] Disconnecting...")
+            client.disconnect()
+
+            logging.info(f"[{device_id}] Shutdown complete")
+
+        modbus_clients.clear()
+        logging.info("All Modbus clients shutdown complete")
 
 
 # 애플리케이션 종료 시 정리
 import atexit
-atexit.register(shutdown_modbus_client)
+atexit.register(shutdown_modbus_clients)

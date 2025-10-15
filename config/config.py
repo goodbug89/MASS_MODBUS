@@ -2,10 +2,13 @@
 Flask 애플리케이션 설정
 
 환경 변수를 통해 설정을 관리합니다.
+멀티 디바이스 지원: DEVICE1~8까지 최대 8대 장비 설정 가능
 """
 
 import os
+import re
 from dotenv import load_dotenv
+from typing import Dict, Any
 
 # .env 파일 로드
 load_dotenv()
@@ -18,28 +21,147 @@ class Config:
     SECRET_KEY = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
     FLASK_ENV = os.getenv('FLASK_ENV', 'production')
 
-    # Modbus TCP 설정
-    MODBUS_HOST = os.getenv('MODBUS_HOST', '10.1.0.1')
-    MODBUS_PORT = int(os.getenv('MODBUS_PORT', 502))
-    MODBUS_UNIT_ID = int(os.getenv('MODBUS_UNIT_ID', 1))
-    MODBUS_TIMEOUT = float(os.getenv('MODBUS_TIMEOUT', 5.0))
+    # ===========================================================================
+    # Modbus 전역 기본값 (모든 장비에 공통 적용)
+    # ===========================================================================
+    MODBUS_DEFAULT_PORT = int(os.getenv('MODBUS_DEFAULT_PORT', 502))
+    MODBUS_DEFAULT_UNIT_ID = int(os.getenv('MODBUS_DEFAULT_UNIT_ID', 1))
+    MODBUS_DEFAULT_TIMEOUT = float(os.getenv('MODBUS_DEFAULT_TIMEOUT', 0.3))
+    MODBUS_DEFAULT_POLL_INTERVAL = float(os.getenv('MODBUS_DEFAULT_POLL_INTERVAL', 0.5))
+    MODBUS_DEFAULT_AUTO_OFF_TIME = float(os.getenv('MODBUS_DEFAULT_AUTO_OFF_TIME', 1.0))
+    MODBUS_DEFAULT_RETRY_COUNT = int(os.getenv('MODBUS_DEFAULT_RETRY_COUNT', 3))
+    MODBUS_DEFAULT_RETRY_DELAY = float(os.getenv('MODBUS_DEFAULT_RETRY_DELAY', 0.1))
 
-    # 폴링 설정
-    POLL_INTERVAL = float(os.getenv('POLL_INTERVAL', 0.5))
+    # 센서 URL (DI 감지 시 호출할 URL)
+    SENSOR_URL = os.getenv('SENSOR_URL')  # 예: http://localhost:5000/api/get_sensor
 
-    # DO 출력 자동 꺼짐 시간 (초 단위, 0이면 비활성화)
-    OUTPUT_AUTO_OFF_TIME = float(os.getenv('OUTPUT_AUTO_OFF_TIME', 1.0))
-
-    # DO 출력 제어 재시도 설정
-    OUTPUT_RETRY_COUNT = int(os.getenv('OUTPUT_RETRY_COUNT', 3))
-    OUTPUT_RETRY_DELAY = float(os.getenv('OUTPUT_RETRY_DELAY', 0.1))
-
-    # DI 감지 시 호출할 센서 URL 설정
-    SENSOR_URL = os.getenv('SENSOR_URL')  # 예: http://localhost:5000/get_sensor
-    SENSOR_DEVICE_ID = os.getenv('SENSOR_DEVICE_ID')  # 예: 1
+    # ===========================================================================
+    # 멀티 디바이스 설정
+    # ===========================================================================
+    DEVICES: Dict[str, Dict[str, Any]] = {}
 
     # 로깅 설정
     LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
+
+    @classmethod
+    def init_devices_config(cls) -> Dict[str, Dict[str, Any]]:
+        """
+        환경 변수에서 장비 설정 파싱
+
+        환경 변수 형식:
+            DEVICE1_ENABLED=true
+            DEVICE1_NAME=Lane1
+            DEVICE1_HOST=192.168.10.101
+            DEVICE1_PORT=502             # 선택 (기본값: MODBUS_DEFAULT_PORT)
+            DEVICE1_UNIT_ID=1            # 선택 (기본값: MODBUS_DEFAULT_UNIT_ID)
+            ...
+
+        Returns:
+            Dict[str, Dict[str, Any]]: 장비 설정 딕셔너리
+                {
+                    'device1': {
+                        'name': 'Lane1',
+                        'host': '192.168.10.101',
+                        'port': 502,
+                        'unit_id': 1,
+                        'timeout': 0.3,
+                        'poll_interval': 0.5,
+                        'auto_off_time': 1.0,
+                        'retry_count': 3,
+                        'retry_delay': 0.1,
+                        'sensor_url': 'http://localhost:5000/api/get_sensor'
+                    },
+                    ...
+                }
+        """
+        devices = {}
+
+        for i in range(1, 9):  # 최대 8대까지 지원
+            device_id = f'device{i}'
+            enabled_key = f'DEVICE{i}_ENABLED'
+
+            # 장비가 활성화되어 있는지 확인
+            enabled = os.getenv(enabled_key, 'false').lower()
+            if enabled not in ['true', '1', 'yes']:
+                continue
+
+            # 필수 항목: HOST
+            host = os.getenv(f'DEVICE{i}_HOST')
+            if not host:
+                print(f"[WARNING] DEVICE{i}_HOST is not set - Skipping device {i}")
+                continue
+
+            # 장비 설정 구성 (기본값 + 개별 설정 오버라이드)
+            devices[device_id] = {
+                'name': os.getenv(f'DEVICE{i}_NAME', f'Device{i}'),
+                'host': host,
+                'port': int(os.getenv(f'DEVICE{i}_PORT', cls.MODBUS_DEFAULT_PORT)),
+                'unit_id': int(os.getenv(f'DEVICE{i}_UNIT_ID', cls.MODBUS_DEFAULT_UNIT_ID)),
+                'timeout': float(os.getenv(f'DEVICE{i}_TIMEOUT', cls.MODBUS_DEFAULT_TIMEOUT)),
+                'poll_interval': float(os.getenv(f'DEVICE{i}_POLL_INTERVAL', cls.MODBUS_DEFAULT_POLL_INTERVAL)),
+                'auto_off_time': float(os.getenv(f'DEVICE{i}_AUTO_OFF_TIME', cls.MODBUS_DEFAULT_AUTO_OFF_TIME)),
+                'retry_count': int(os.getenv(f'DEVICE{i}_RETRY_COUNT', cls.MODBUS_DEFAULT_RETRY_COUNT)),
+                'retry_delay': float(os.getenv(f'DEVICE{i}_RETRY_DELAY', cls.MODBUS_DEFAULT_RETRY_DELAY)),
+                'sensor_url': os.getenv(f'DEVICE{i}_SENSOR_URL', cls.SENSOR_URL)
+            }
+
+        cls.DEVICES = devices
+        return devices
+
+    @classmethod
+    def validate_devices_config(cls) -> bool:
+        """
+        장비 설정 유효성 검증
+
+        Raises:
+            ValueError: 설정이 유효하지 않은 경우
+
+        Returns:
+            bool: 검증 성공 여부
+        """
+        if not cls.DEVICES:
+            raise ValueError(
+                "No devices configured. Please set at least one device "
+                "(e.g., DEVICE1_ENABLED=true, DEVICE1_HOST=192.168.10.101)"
+            )
+
+        ip_pattern = re.compile(r'^(\d{1,3}\.){3}\d{1,3}$')
+
+        for device_id, config in cls.DEVICES.items():
+            # 필수 항목 확인
+            if 'host' not in config or not config['host']:
+                raise ValueError(f"{device_id}: HOST is required")
+
+            # IP 형식 검증 (간단한 정규식)
+            if not ip_pattern.match(config['host']):
+                # IP가 아니면 호스트명일 수 있음 (localhost, domain 등)
+                if config['host'] not in ['localhost', '127.0.0.1']:
+                    # 간단한 검증만 수행
+                    pass
+
+            # 포트 범위 확인
+            if not (1 <= config['port'] <= 65535):
+                raise ValueError(
+                    f"{device_id}: Invalid port number - {config['port']} "
+                    "(must be 1-65535)"
+                )
+
+            # Unit ID 범위 확인
+            if not (0 <= config['unit_id'] <= 255):
+                raise ValueError(
+                    f"{device_id}: Invalid unit_id - {config['unit_id']} "
+                    "(must be 0-255)"
+                )
+
+            # Timeout 범위 확인
+            if not (0.1 <= config['timeout'] <= 60.0):
+                raise ValueError(
+                    f"{device_id}: Invalid timeout - {config['timeout']} "
+                    "(must be 0.1-60.0 seconds)"
+                )
+
+        print(f"[OK] Device configuration validated: {len(cls.DEVICES)} devices")
+        return True
 
 
 class DevelopmentConfig(Config):

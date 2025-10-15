@@ -101,12 +101,13 @@ def validate_boolean(value: Any) -> bool:
     raise ValidationError(f"Boolean 값으로 변환할 수 없습니다: {value}")
 
 
-def validate_device_id(device_id: Any) -> str:
+def validate_device_id(device_id: Any, valid_devices: Optional[list] = None) -> str:
     """
     장비 ID 검증
 
     Args:
         device_id: 검증할 장비 ID
+        valid_devices: 유효한 장비 ID 목록 (None이면 형식만 검증)
 
     Returns:
         str: 검증된 장비 ID
@@ -114,8 +115,18 @@ def validate_device_id(device_id: Any) -> str:
     Raises:
         ValidationError: 검증 실패 시
     """
-    # 영문자, 숫자, 언더스코어, 하이픈만 허용
-    return sanitize_string(device_id, max_length=50, allow_pattern=r'^[a-zA-Z0-9_\-]+$')
+    # 형식 검증: 영문자, 숫자, 언더스코어, 하이픈만 허용
+    device_id_clean = sanitize_string(device_id, max_length=50, allow_pattern=r'^[a-zA-Z0-9_\-]+$')
+
+    # 유효한 장비 목록과 비교 (제공된 경우)
+    if valid_devices is not None:
+        if device_id_clean not in valid_devices:
+            raise ValidationError(
+                f"존재하지 않는 장비 ID입니다: {device_id_clean}. "
+                f"유효한 장비: {', '.join(valid_devices)}"
+            )
+
+    return device_id_clean
 
 
 def validate_url(url: Any) -> str:

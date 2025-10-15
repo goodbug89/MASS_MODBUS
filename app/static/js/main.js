@@ -1,8 +1,8 @@
 /**
- * CIE-H14A Modbus 제어 시스템 - 프론트엔드 JavaScript
+ * CIE-H14A Modbus 멀티 제어 시스템 - 프론트엔드 JavaScript
  *
  * SSE(Server-Sent Events)를 통한 실시간 업데이트 처리
- * 출력 제어 및 UI 업데이트 관리
+ * 멀티 디바이스 지원 - 최대 8대의 장비를 동시 제어
  */
 
 // 전역 변수
@@ -11,22 +11,23 @@ let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 10;
 const RECONNECT_BASE_DELAY = 2000; // 2초
 let reconnectTimeout = null;
+let devicesData = {};  // 장비 데이터 캐시
 
 // 페이지 로드 시 초기화
-document.addEventListener('DOMContentLoaded', function() {
-    console.log('CIE-H14A Modbus 제어 시스템 초기화 중...');
+document.addEventListener('DOMContentLoaded', async function() {
+    console.log('CIE-H14A Modbus 멀티 제어 시스템 초기화 중...');
 
-    // 모든 버튼 활성화 (초기화)
-    enableAllButtons();
+    // 장비 목록 로드
+    await loadDevicesList();
 
-    // 설정 정보 로드
-    loadConfig();
+    // 멀티 디바이스 UI 생성
+    renderDevicesGrid();
 
     // SSE 연결 시작
     connectSSE();
 
     // 초기 상태 로드
-    loadStatus();
+    await loadAllStatus();
 
     // API 모니터링 시작 (5초마다)
     startMonitoring();
@@ -34,95 +35,145 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 /**
- * 모든 출력 버튼 활성화
+ * 장비 목록 로드
  */
-function enableAllButtons() {
-    for (let i = 0; i < 4; i++) {
-        const button = document.getElementById(`output${i}`);
-        if (button) {
-            button.disabled = false;
-            console.log(`DO${i} 버튼 활성화`);
-        }
-    }
-}
-
-/**
- * 모든 입출력 초기화 (연결 끊김 시)
- */
-function resetAllIO() {
-    console.log('모든 입출력 초기화 시작');
-
-    // 모든 DI를 OFF로 표시
-    for (let i = 0; i < 4; i++) {
-        updateInputIndicator(i, false);
-    }
-
-    // 모든 DO 버튼 비활성화 및 OFF로 표시
-    for (let i = 0; i < 4; i++) {
-        const button = document.getElementById(`output${i}`);
-        if (button) {
-            button.disabled = true;  // 버튼 비활성화
-            const stateText = button.querySelector('.output-state');
-
-            // OFF 스타일로 변경
-            button.classList.remove('active', 'btn-warning');
-            button.classList.add('btn-outline-secondary');
-            if (stateText) {
-                stateText.textContent = 'OFF';
-            }
-
-            console.log(`DO${i} 초기화: OFF, 비활성화`);
-        }
-    }
-
-    console.log('모든 입출력 초기화 완료');
-}
-
-/**
- * 설정 정보 로드
- */
-async function loadConfig() {
+async function loadDevicesList() {
     try {
-        const response = await fetch('/api/config');
-        if (!response.ok) {
-            throw new Error('설정 정보 로드 실패');
-        }
+        const response = await fetch('/api/devices');
+        if (!response.ok) throw new Error('장비 목록 로드 실패');
 
-        const config = await response.json();
+        const data = await response.json();
 
-        // 설정 정보 표시
-        document.getElementById('configHost').textContent = config.modbus_host;
-        document.getElementById('configPort').textContent = config.modbus_port;
-        document.getElementById('configUnitId').textContent = config.modbus_unit_id;
+        // 장비 데이터 초기화
+        data.devices.forEach(device => {
+            devicesData[device.id] = {
+                id: device.id,
+                name: device.name,
+                host: device.host,
+                connected: device.connected,
+                inputs: [false, false, false, false],
+                outputs: [false, false, false, false],
+                di_detection: {}
+            };
+        });
 
-        addLog('info', '설정 정보 로드 완료');
+        console.log(`${data.devices.length}대 장비 로드 완료`);
+        addLog('success', `${data.devices.length}대 장비 초기화 완료`);
+
     } catch (error) {
-        console.error('설정 정보 로드 오류:', error);
-        showAlert('danger', '설정 정보를 로드할 수 없습니다.');
+        console.error('장비 목록 로드 오류:', error);
+        showAlert('danger', '장비 목록을 로드할 수 없습니다.');
     }
 }
 
 /**
- * 초기 상태 로드
+ * 멀티 디바이스 그리드 UI 렌더링
  */
-async function loadStatus() {
+function renderDevicesGrid() {
+    const grid = document.getElementById('devicesGrid');
+    grid.innerHTML = '';
+
+    Object.values(devicesData).forEach(device => {
+        const deviceCard = createDeviceCard(device);
+        grid.appendChild(deviceCard);
+    });
+}
+
+/**
+ * 장비 카드 생성
+ */
+function createDeviceCard(device) {
+    const col = document.createElement('div');
+    col.className = 'col-12 col-lg-6 mb-4';
+
+    col.innerHTML = `
+        <div class="card device-card" id="device-card-${device.id}">
+            <div class="card-header bg-primary text-white">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i class="bi bi-hdd-network"></i> ${device.name}
+                    </h5>
+                    <div>
+                        <span class="badge bg-light text-dark me-2">${device.host}</span>
+                        <span class="badge bg-secondary" id="conn-${device.id}">
+                            <i class="bi bi-circle-fill"></i> 연결 중...
+                        </span>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body">
+                <!-- 디지털 입력 -->
+                <div class="mb-3">
+                    <h6><i class="bi bi-download"></i> 디지털 입력 (DI)</h6>
+                    <div class="d-flex justify-content-around">
+                        ${[0, 1, 2, 3].map(ch => `
+                            <div class="input-indicator" id="di-${device.id}-${ch}">
+                                <i class="bi bi-circle-fill led-off"></i>
+                                <div class="mt-1"><strong>DI ${ch}</strong></div>
+                                <div class="input-state">OFF</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+
+                <!-- 디지털 출력 -->
+                <div class="mb-3">
+                    <h6><i class="bi bi-upload"></i> 디지털 출력 (DO)</h6>
+                    <div class="d-flex justify-content-around">
+                        ${[0, 1, 2, 3].map(ch => `
+                            <div class="output-control">
+                                <button class="btn btn-sm btn-outline-secondary output-btn"
+                                        id="do-${device.id}-${ch}"
+                                        onclick="toggleOutput('${device.id}', ${ch})">
+                                    <i class="bi bi-power"></i>
+                                    <div class="mt-1"><strong>DO ${ch}</strong></div>
+                                    <div class="output-state">OFF</div>
+                                </button>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+
+                <!-- DI 감지 상태 -->
+                <div class="alert alert-info mb-0" id="di-detect-${device.id}" style="display: none;">
+                    <small>
+                        <i class="bi bi-radar"></i> DI 감지:
+                        <span class="badge bg-secondary" id="di-detect-badge-${device.id}">대기 중</span>
+                    </small>
+                </div>
+            </div>
+        </div>
+    `;
+
+    return col;
+}
+
+/**
+ * 전체 상태 로드
+ */
+async function loadAllStatus() {
     try {
         const response = await fetch('/api/status');
-        if (!response.ok) {
-            throw new Error('상태 로드 실패');
-        }
+        if (!response.ok) throw new Error('상태 로드 실패');
 
-        const status = await response.json();
-        updateUI(status);
-        addLog('success', '초기 상태 로드 완료');
+        const data = await response.json();
+
+        // 각 장비 상태 업데이트
+        Object.entries(data.devices).forEach(([deviceId, status]) => {
+            updateDeviceUI(deviceId, status);
+        });
+
+        // 요약 정보 업데이트
+        updateConnectionSummary(data.summary);
+
     } catch (error) {
         console.error('상태 로드 오류:', error);
-        showAlert('danger', '초기 상태를 로드할 수 없습니다.');
+        showAlert('danger', '시스템 상태를 로드할 수 없습니다.');
     }
 }
 
 /**
- * SSE 연결
+ * SSE 연결 (멀티 디바이스)
  */
 function connectSSE() {
     // 기존 재연결 타이머 취소
@@ -139,10 +190,8 @@ function connectSSE() {
 
     console.log(`SSE 연결 시도 중... (시도 ${reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS})`);
 
-    // 첫 연결 시에만 로그 표시
     if (reconnectAttempts === 0) {
         addLog('info', 'SSE 연결 시작...');
-        updateConnectionStatus('connecting');
     }
 
     try {
@@ -158,8 +207,19 @@ function connectSSE() {
                     return;
                 }
 
-                // UI 업데이트
-                updateUI(data);
+                // 초기 상태 (type: 'initial')
+                if (data.type === 'initial' && data.devices) {
+                    Object.entries(data.devices).forEach(([deviceId, status]) => {
+                        updateDeviceUI(deviceId, status);
+                    });
+                }
+
+                // 업데이트 (type: 'update')
+                else if (data.type === 'update' && data.devices) {
+                    Object.entries(data.devices).forEach(([deviceId, status]) => {
+                        updateDeviceUI(deviceId, status);
+                    });
+                }
 
                 // 재연결 성공 - 카운터 초기화
                 if (reconnectAttempts > 0) {
@@ -200,18 +260,14 @@ function connectSSE() {
 
                 console.log(`${delay/1000}초 후 재연결 시도 (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
 
-                // 처음 몇 번만 로그 표시
                 if (reconnectAttempts <= 3) {
                     addLog('warning', `${delay/1000}초 후 SSE 재연결 시도...`);
                 }
-
-                updateConnectionStatus('connecting');
 
                 reconnectTimeout = setTimeout(connectSSE, delay);
             } else {
                 console.error('최대 재연결 시도 횟수 초과');
                 addLog('error', 'SSE 연결 실패: 최대 시도 횟수 초과');
-                updateConnectionStatus('disconnected');
 
                 // 10초 후 재시도 카운터 리셋
                 setTimeout(() => {
@@ -234,135 +290,52 @@ function connectSSE() {
     }
 }
 
-// 이전 연결 상태 추적
-let previousConnectionState = null;
-
 /**
- * UI 업데이트
+ * 장비 UI 업데이트
  */
-function updateUI(status) {
-    const currentConnectionState = status.connected;
-
-    // 연결 상태 업데이트
-    updateConnectionStatus(currentConnectionState ? 'connected' : 'disconnected');
-
-    // 연결이 끊어진 경우 모든 입출력 초기화
-    if (!currentConnectionState) {
-        console.log('Modbus 연결 끊김 - UI 초기화');
-        resetAllIO();
-
-        // 최초 연결 끊김 시에만 알림 표시
-        if (previousConnectionState !== false) {
-            addLog('warning', 'Modbus 연결 끊김 - 모든 입출력 초기화됨');
-            showAlert('warning', 'Modbus 연결이 끊어졌습니다. 모든 출력 제어가 비활성화됩니다.');
-        }
-
-        previousConnectionState = false;
-        return;
-    }
-
-    // 연결이 복구된 경우
-    if (previousConnectionState === false && currentConnectionState) {
-        console.log('Modbus 연결 복구 - 버튼 활성화');
-        enableAllButtons();
-        addLog('success', 'Modbus 연결 복구됨');
-        showAlert('success', 'Modbus 연결이 복구되었습니다. 출력 제어가 가능합니다.');
-    }
-
-    previousConnectionState = currentConnectionState;
-
-    // 입력 상태 업데이트
-    if (status.inputs) {
-        status.inputs.forEach((state, index) => {
-            updateInputIndicator(index, state);
-        });
-    }
-
-    // 출력 상태 업데이트
-    if (status.outputs) {
-        status.outputs.forEach((state, index) => {
-            updateOutputButton(index, state);
-        });
-    }
-
-    // 마지막 업데이트 시간
-    if (status.timestamp) {
-        const date = new Date(status.timestamp * 1000);
-        document.getElementById('lastUpdate').textContent = date.toLocaleTimeString('ko-KR');
-    }
-
-    // DI 감지 상태 업데이트
-    if (status.di_detection) {
-        updateDIDetectionStatus(status.di_detection);
-    }
-}
-
-/**
- * DI 감지 상태 업데이트
- */
-function updateDIDetectionStatus(diDetection) {
-    const statusContainer = document.getElementById('diDetectionStatus');
-    const stateBadge = document.getElementById('diDetectionState');
-    const requestBadge = document.getElementById('diRequestStatus');
-    const urlText = document.getElementById('diDetectionUrl');
-
-    // DI 감지 기능이 활성화되어 있을 때만 표시
-    if (diDetection.enabled) {
-        statusContainer.style.display = 'block';
-        urlText.textContent = `Device ID: ${diDetection.device_id} → ${diDetection.sensor_url}`;
-
-        // 상태에 따라 배지 업데이트
-        if (diDetection.di_triggered && diDetection.request_sent) {
-            // DI ON 상태 + 요청 전송 완료
-            stateBadge.className = 'badge bg-danger';
-            stateBadge.innerHTML = '<i class="bi bi-circle-fill"></i> DI 감지 - 종료 대기';
-            requestBadge.style.display = 'inline-block';
-        } else if (diDetection.di_triggered && !diDetection.request_sent) {
-            // DI ON 상태 + 요청 전송 중
-            stateBadge.className = 'badge bg-warning';
-            stateBadge.innerHTML = '<i class="bi bi-circle-fill"></i> 요청 전송 중...';
-            requestBadge.style.display = 'none';
+function updateDeviceUI(deviceId, status) {
+    // 연결 상태
+    const connBadge = document.getElementById(`conn-${deviceId}`);
+    if (connBadge) {
+        if (status.connected) {
+            connBadge.className = 'badge bg-success';
+            connBadge.innerHTML = '<i class="bi bi-circle-fill"></i> 연결됨';
         } else {
-            // DI OFF 상태 - 대기 중
-            stateBadge.className = 'badge bg-success';
-            stateBadge.innerHTML = '<i class="bi bi-circle-fill"></i> DI 수신 대기';
-            requestBadge.style.display = 'none';
+            connBadge.className = 'badge bg-danger';
+            connBadge.innerHTML = '<i class="bi bi-circle-fill"></i> 연결 끊김';
         }
-    } else {
-        statusContainer.style.display = 'none';
     }
-}
 
-/**
- * 연결 상태 업데이트
- */
-function updateConnectionStatus(status) {
-    const statusBadge = document.getElementById('connectionStatus');
+    // 입력 상태
+    if (status.inputs) {
+        status.inputs.forEach((state, ch) => {
+            updateInputIndicator(deviceId, ch, state);
+        });
+    }
 
-    // 모든 상태 클래스 제거
-    statusBadge.classList.remove('status-connected', 'status-disconnected', 'status-connecting');
+    // 출력 상태
+    if (status.outputs) {
+        status.outputs.forEach((state, ch) => {
+            updateOutputButton(deviceId, ch, state);
+        });
+    }
 
-    switch(status) {
-        case 'connected':
-            statusBadge.classList.add('status-connected');
-            statusBadge.innerHTML = '<i class="bi bi-circle-fill status-indicator"></i> 연결됨';
-            break;
-        case 'disconnected':
-            statusBadge.classList.add('status-disconnected');
-            statusBadge.innerHTML = '<i class="bi bi-circle-fill status-indicator"></i> 연결 끊김';
-            break;
-        case 'connecting':
-            statusBadge.classList.add('status-connecting');
-            statusBadge.innerHTML = '<i class="bi bi-circle-fill status-indicator"></i> 연결 중...';
-            break;
+    // DI 감지 상태
+    if (status.di_detection) {
+        updateDIDetectionStatus(deviceId, status.di_detection);
+    }
+
+    // 캐시 업데이트
+    if (devicesData[deviceId]) {
+        devicesData[deviceId] = { ...devicesData[deviceId], ...status };
     }
 }
 
 /**
  * 입력 인디케이터 업데이트
  */
-function updateInputIndicator(channel, state) {
-    const indicator = document.getElementById(`input${channel}`);
+function updateInputIndicator(deviceId, channel, state) {
+    const indicator = document.getElementById(`di-${deviceId}-${channel}`);
     if (!indicator) return;
 
     const led = indicator.querySelector('i');
@@ -372,33 +345,29 @@ function updateInputIndicator(channel, state) {
         led.classList.remove('led-off');
         led.classList.add('led-on');
         stateText.textContent = 'ON';
-        stateText.classList.remove('state-off');
         stateText.classList.add('state-on');
     } else {
         led.classList.remove('led-on');
         led.classList.add('led-off');
         stateText.textContent = 'OFF';
         stateText.classList.remove('state-on');
-        stateText.classList.add('state-off');
     }
 }
 
 /**
  * 출력 버튼 업데이트
  */
-function updateOutputButton(channel, state) {
-    const button = document.getElementById(`output${channel}`);
+function updateOutputButton(deviceId, channel, state) {
+    const button = document.getElementById(`do-${deviceId}-${channel}`);
     if (!button) return;
 
     const stateText = button.querySelector('.output-state');
 
     if (state) {
-        button.classList.add('active');
-        button.classList.remove('btn-outline-secondary');
         button.classList.add('btn-warning');
+        button.classList.remove('btn-outline-secondary');
         stateText.textContent = 'ON';
     } else {
-        button.classList.remove('active');
         button.classList.remove('btn-warning');
         button.classList.add('btn-outline-secondary');
         stateText.textContent = 'OFF';
@@ -406,94 +375,88 @@ function updateOutputButton(channel, state) {
 }
 
 /**
+ * DI 감지 상태 업데이트
+ */
+function updateDIDetectionStatus(deviceId, diDetection) {
+    const container = document.getElementById(`di-detect-${deviceId}`);
+    const badge = document.getElementById(`di-detect-badge-${deviceId}`);
+
+    if (!diDetection.enabled) {
+        container.style.display = 'none';
+        return;
+    }
+
+    container.style.display = 'block';
+
+    if (diDetection.di_triggered && diDetection.request_sent) {
+        badge.className = 'badge bg-danger';
+        badge.textContent = 'DI 감지 - 종료 대기';
+    } else if (diDetection.di_triggered && !diDetection.request_sent) {
+        badge.className = 'badge bg-warning';
+        badge.textContent = '요청 전송 중...';
+    } else {
+        badge.className = 'badge bg-success';
+        badge.textContent = 'DI 수신 대기';
+    }
+}
+
+/**
  * 출력 토글
  */
-async function toggleOutput(channel) {
-    console.log(`toggleOutput 호출: 채널 ${channel}`);
+async function toggleOutput(deviceId, channel) {
+    const button = document.getElementById(`do-${deviceId}-${channel}`);
+    if (!button || button.disabled) return;
 
-    const button = document.getElementById(`output${channel}`);
-    if (!button) {
-        console.error(`버튼을 찾을 수 없음: output${channel}`);
-        return;
-    }
-
-    // 이미 비활성화되어 있으면 리턴 (연결 끊김 상태)
-    if (button.disabled) {
-        console.log('버튼이 비활성화 상태 - 연결 끊김');
-        showAlert('warning', 'Modbus 연결이 끊어져 있습니다. 출력 제어가 불가능합니다.');
-        return;
-    }
-
-    // 버튼 비활성화 (중복 클릭 방지)
     button.disabled = true;
-    console.log('버튼 비활성화');
 
     try {
-        console.log(`API 요청 시작: /api/output/${channel}/toggle`);
-        const response = await fetch(`/api/output/${channel}/toggle`, {
+        const response = await fetch(`/api/devices/${deviceId}/output/${channel}/toggle`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            }
+            headers: { 'Content-Type': 'application/json' }
         });
 
-        console.log(`API 응답: ${response.status}`);
-
-        if (!response.ok) {
-            throw new Error(`출력 토글 실패: ${response.status}`);
-        }
+        if (!response.ok) throw new Error(`출력 토글 실패: ${response.status}`);
 
         const result = await response.json();
-        console.log('API 결과:', result);
 
         if (result.success) {
-            addLog('success', `DO ${channel}: ${result.state ? 'ON' : 'OFF'}`);
-            console.log(`DO ${channel} 제어 성공: ${result.state ? 'ON' : 'OFF'}`);
-            // UI는 SSE를 통해 자동으로 업데이트됨
+            addLog('success', `[${deviceId}] DO ${channel}: ${result.state ? 'ON' : 'OFF'}`);
         } else {
             throw new Error(result.error || '알 수 없는 오류');
         }
 
     } catch (error) {
         console.error('출력 제어 오류:', error);
-        addLog('error', `DO ${channel} 제어 실패: ${error.message}`);
-        showAlert('danger', `출력 ${channel} 제어에 실패했습니다: ${error.message}`);
+        addLog('error', `[${deviceId}] DO ${channel} 제어 실패: ${error.message}`);
+        showAlert('danger', `[${deviceId}] 출력 ${channel} 제어에 실패했습니다`);
     } finally {
-        // 버튼 다시 활성화
-        console.log('버튼 재활성화 예약 (100ms 후)');
         setTimeout(() => {
-            if (button) {
-                button.disabled = false;
-                console.log('버튼 재활성화 완료');
-            }
+            if (button) button.disabled = false;
         }, 100);
     }
 }
 
 /**
- * 알림 표시
+ * 연결 요약 업데이트
  */
-function showAlert(type, message) {
-    const alertContainer = document.getElementById('alertContainer');
+function updateConnectionSummary(summary) {
+    const statusBadge = document.getElementById('connectionStatus');
+    const statusText = document.getElementById('connectionText');
 
-    const alertDiv = document.createElement('div');
-    alertDiv.className = `alert alert-${type} alert-dismissible fade show fade-in`;
-    alertDiv.role = 'alert';
-    alertDiv.innerHTML = `
-        ${message}
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-    `;
-
-    alertContainer.appendChild(alertDiv);
-
-    // 5초 후 자동 제거
-    setTimeout(() => {
-        alertDiv.remove();
-    }, 5000);
+    if (summary.connected_devices === summary.total_devices) {
+        statusBadge.className = 'badge bg-success';
+        statusText.textContent = `전체 연결됨 (${summary.total_devices}/${summary.total_devices})`;
+    } else if (summary.connected_devices === 0) {
+        statusBadge.className = 'badge bg-danger';
+        statusText.textContent = `전체 연결 끊김 (0/${summary.total_devices})`;
+    } else {
+        statusBadge.className = 'badge bg-warning';
+        statusText.textContent = `일부 연결됨 (${summary.connected_devices}/${summary.total_devices})`;
+    }
 }
 
 /**
- * 시스템 로그 추가
+ * 로그 추가
  */
 function addLog(level, message) {
     const logContainer = document.getElementById('systemLog');
@@ -506,93 +469,73 @@ function addLog(level, message) {
         <span>${message}</span>
     `;
 
-    // 로그를 맨 위에 추가
     logContainer.insertBefore(logEntry, logContainer.firstChild);
 
-    // 로그가 50개 이상이면 오래된 것 제거
-    while (logContainer.children.length > 50) {
+    while (logContainer.children.length > 100) {
         logContainer.removeChild(logContainer.lastChild);
     }
 }
 
 /**
- * API 모니터링 시작
+ * 알림 표시
+ */
+function showAlert(type, message) {
+    const alertContainer = document.getElementById('alertContainer');
+
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+    alertDiv.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+
+    alertContainer.appendChild(alertDiv);
+
+    setTimeout(() => alertDiv.remove(), 5000);
+}
+
+/**
+ * API 모니터링
  */
 async function startMonitoring() {
     try {
         const response = await fetch('/api/monitor');
-        if (!response.ok) {
-            throw new Error('모니터링 정보 로드 실패');
-        }
+        if (!response.ok) throw new Error('모니터링 정보 로드 실패');
 
         const data = await response.json();
-        updateMonitoringUI(data);
+
+        // 가동 시간
+        document.getElementById('monitorUptime').textContent = formatUptime(data.uptime);
+
+        // 활성 장비 수
+        const connectedDevices = Object.values(devicesData).filter(d => d.connected).length;
+        document.getElementById('monitorActiveDevices').textContent =
+            `${connectedDevices}/${Object.keys(devicesData).length}`;
+
+        // 총 요청 수
+        document.getElementById('monitorTotal').textContent = data.total_requests.toLocaleString();
+
+        // 성공률
+        document.getElementById('monitorSuccess').textContent = `${data.success_rate}%`;
+
+        // 1분 요청 수
+        document.getElementById('monitorRecent').textContent = data.recent_1min.requests;
+
+        // 평균 응답 시간
+        document.getElementById('monitorAvgTime').textContent =
+            `${data.recent_1min.avg_duration_ms.toFixed(1)}ms`;
+
+        // 헬스 바 업데이트
+        const healthBar = document.getElementById('monitorHealthBar');
+        healthBar.style.width = `${data.success_rate}%`;
+
+        // 마지막 체크 시간
+        const lastCheck = new Date(data.last_check * 1000).toLocaleTimeString('ko-KR');
+        document.getElementById('monitorLastCheck').textContent = lastCheck;
 
     } catch (error) {
         console.error('모니터링 오류:', error);
-        // 모니터링 실패는 UI에 표시만 하고 에러는 띄우지 않음
-        updateMonitoringUI(null);
     }
-}
-
-/**
- * 모니터링 UI 업데이트
- */
-function updateMonitoringUI(data) {
-    if (!data) {
-        // 데이터 로드 실패
-        document.getElementById('monitorStatus').innerHTML = '<i class="bi bi-circle-fill text-danger"></i>';
-        document.getElementById('monitorHealthBar').style.width = '0%';
-        document.getElementById('monitorHealthBar').classList.remove('bg-success');
-        document.getElementById('monitorHealthBar').classList.add('bg-danger');
-        return;
-    }
-
-    // 가동 시간 포맷팅
-    const uptime = formatUptime(data.uptime);
-    document.getElementById('monitorUptime').textContent = uptime;
-
-    // 총 요청 수
-    document.getElementById('monitorTotal').textContent = data.total_requests.toLocaleString();
-
-    // 성공률
-    const successRate = data.success_rate;
-    document.getElementById('monitorSuccess').textContent = `${successRate}%`;
-
-    // 1분 요청 수
-    document.getElementById('monitorRecent').textContent = data.recent_1min.requests;
-
-    // 평균 응답 시간
-    const avgTime = data.recent_1min.avg_duration_ms;
-    document.getElementById('monitorAvgTime').textContent = `${avgTime.toFixed(1)}ms`;
-
-    // API 상태 (응답시간 기반)
-    let statusIcon, statusColor, healthPercent;
-    if (avgTime < 50) {
-        statusIcon = 'bi-circle-fill text-success';
-        statusColor = 'success';
-        healthPercent = 100;
-    } else if (avgTime < 200) {
-        statusIcon = 'bi-circle-fill text-warning';
-        statusColor = 'warning';
-        healthPercent = 80;
-    } else {
-        statusIcon = 'bi-circle-fill text-danger';
-        statusColor = 'danger';
-        healthPercent = 50;
-    }
-
-    document.getElementById('monitorStatus').innerHTML = `<i class="bi ${statusIcon}"></i>`;
-
-    // 헬스 바 업데이트
-    const healthBar = document.getElementById('monitorHealthBar');
-    healthBar.style.width = `${successRate}%`;
-    healthBar.classList.remove('bg-success', 'bg-warning', 'bg-danger');
-    healthBar.classList.add(`bg-${statusColor}`);
-
-    // 마지막 체크 시간
-    const lastCheck = new Date(data.last_check * 1000).toLocaleTimeString('ko-KR');
-    document.getElementById('monitorLastCheck').textContent = lastCheck;
 }
 
 /**
@@ -603,15 +546,10 @@ function formatUptime(seconds) {
     const hours = Math.floor((seconds % 86400) / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
 
-    if (days > 0) {
-        return `${days}일 ${hours}시간`;
-    } else if (hours > 0) {
-        return `${hours}시간 ${minutes}분`;
-    } else if (minutes > 0) {
-        return `${minutes}분`;
-    } else {
-        return `${Math.floor(seconds)}초`;
-    }
+    if (days > 0) return `${days}일 ${hours}시간`;
+    if (hours > 0) return `${hours}시간 ${minutes}분`;
+    if (minutes > 0) return `${minutes}분`;
+    return `${Math.floor(seconds)}초`;
 }
 
 /**
@@ -628,13 +566,11 @@ window.addEventListener('beforeunload', function() {
  */
 document.addEventListener('visibilitychange', function() {
     if (document.hidden) {
-        // 페이지가 숨겨지면 SSE 연결 종료
         if (eventSource) {
             eventSource.close();
         }
     } else {
-        // 페이지가 다시 보이면 SSE 재연결
         connectSSE();
-        loadStatus();
+        loadAllStatus();
     }
 });
