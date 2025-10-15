@@ -290,6 +290,47 @@ function updateUI(status) {
         const date = new Date(status.timestamp * 1000);
         document.getElementById('lastUpdate').textContent = date.toLocaleTimeString('ko-KR');
     }
+
+    // DI 감지 상태 업데이트
+    if (status.di_detection) {
+        updateDIDetectionStatus(status.di_detection);
+    }
+}
+
+/**
+ * DI 감지 상태 업데이트
+ */
+function updateDIDetectionStatus(diDetection) {
+    const statusContainer = document.getElementById('diDetectionStatus');
+    const stateBadge = document.getElementById('diDetectionState');
+    const requestBadge = document.getElementById('diRequestStatus');
+    const urlText = document.getElementById('diDetectionUrl');
+
+    // DI 감지 기능이 활성화되어 있을 때만 표시
+    if (diDetection.enabled) {
+        statusContainer.style.display = 'block';
+        urlText.textContent = `Device ID: ${diDetection.device_id} → ${diDetection.sensor_url}`;
+
+        // 상태에 따라 배지 업데이트
+        if (diDetection.di_triggered && diDetection.request_sent) {
+            // DI ON 상태 + 요청 전송 완료
+            stateBadge.className = 'badge bg-danger';
+            statebadge.innerHTML = '<i class="bi bi-circle-fill"></i> DI 수신 종료 대기';
+            requestBadge.style.display = 'inline-block';
+        } else if (diDetection.di_triggered && !diDetection.request_sent) {
+            // DI ON 상태 + 요청 전송 중
+            statesBadge.className = 'badge bg-warning';
+            statesBadge.innerHTML = '<i class="bi bi-circle-fill"></i> 요청 전송 중...';
+            requestBadge.style.display = 'none';
+        } else {
+            // DI OFF 상태 - 대기 중
+            statesBadge.className = 'badge bg-success';
+            statesBadge.innerHTML = '<i class="bi bi-circle-fill"></i> DI 수신 대기';
+            requestBadge.style.display = 'none';
+        }
+    } else {
+        statusContainer.style.display = 'none';
+    }
 }
 
 /**

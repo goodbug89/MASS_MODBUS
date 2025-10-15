@@ -23,14 +23,22 @@ share/python-wheels/
 *.egg
 MANIFEST
 
-# 가상환경
+# Virtual Environment
 venv/
-env/
 ENV/
-env.bak/
-venv.bak/
+env/
+.venv
 
-# IDEs
+# Flask
+instance/
+.webassets-cache
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE
 .vscode/
 .idea/
 *.swp
@@ -38,33 +46,29 @@ venv.bak/
 *~
 .DS_Store
 
-# 환경 변수
-.env
-.env.local
-
-# 로그
+# Logs
 *.log
 logs/
+*.pid
 
-# 테스트
-.pytest_cache/
+# Test coverage
 .coverage
+.coverage.*
 htmlcov/
+.pytest_cache/
 .tox/
 
 # Docker
-docker-compose.override.yml
+.dockerignore
 
-# 임시 파일
-*.tmp
+# Backup files
 *.bak
-*.cache
+*_old.py
+*_backup.py
 
-# OS
-Thumbs.db
-.DS_Store
-
-# 프로젝트 특정
-*.db
-*.sqlite
-*.sqlite3
+# Security
+*.pem
+*.key
+*.crt
+secrets/
+credentials/

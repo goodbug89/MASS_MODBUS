@@ -94,7 +94,9 @@ def init_modbus_client(app: Flask) -> None:
         poll_interval=app.config['POLL_INTERVAL'],
         auto_off_time=app.config['OUTPUT_AUTO_OFF_TIME'],
         retry_count=app.config['OUTPUT_RETRY_COUNT'],
-        retry_delay=app.config['OUTPUT_RETRY_DELAY']
+        retry_delay=app.config['OUTPUT_RETRY_DELAY'],
+        sensor_url=app.config.get('SENSOR_URL'),
+        sensor_device_id=app.config.get('SENSOR_DEVICE_ID')
     )
 
     # 연결 시도
@@ -143,13 +145,36 @@ def register_app_handlers(app: Flask) -> None:
 
     @app.after_request
     def after_request(response):
-        """요청 후 처리: CORS 헤더 추가 및 모니터링"""
+        """요청 후 처리: 보안 헤더, CORS, 모니터링"""
         from flask import g
 
-        # CORS 헤더
-        response.headers.add('Access-Control-Allow-Origin', '*')
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-        response.headers.add('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
+        # 보안 헤더 추가 (OWASP Secure Headers)
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        response.headers['X-Frame-Options'] = 'DENY'
+        response.headers['X-XSS-Protection'] = '1; mode=block'
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+
+        # CSP (Content Security Policy) - 개발 환경에서는 느슨하게, 프로덕션에서는 엄격하게
+        if app.config.get('FLASK_ENV') == 'production':
+            response.headers['Content-Security-Policy'] = (
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+                "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+                "img-src 'self' data:; "
+                "font-src 'self' https://cdn.jsdelivr.net; "
+                "connect-src 'self'; "
+                "frame-ancestors 'none'"
+            )
+
+        # 서버 정보 숨기기
+        response.headers.pop('Server', None)
+
+        # CORS 헤더 (프로덕션에서는 특정 origin만 허용해야 함)
+        allowed_origins = app.config.get('ALLOWED_ORIGINS', '*')
+        response.headers['Access-Control-Allow-Origin'] = allowed_origins
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type,Authorization'
+        response.headers['Access-Control-Allow-Methods'] = 'GET,POST,OPTIONS'
+        response.headers['Access-Control-Max-Age'] = '3600'
 
         # API 모니터링 (health check 제외)
         if hasattr(g, 'start_time') and hasattr(g, 'request_path'):

@@ -177,7 +177,7 @@ def get_status():
 
 @bp.route('/api/output/<int:channel>', methods=['POST'])
 @handle_errors
-@rate_limit(max_requests=120, window=60)
+@rate_limit(max_requests=30, window=60)
 def control_output(channel):
     """
     특정 출력 채널 제어
@@ -247,7 +247,7 @@ def control_output(channel):
 
 @bp.route('/api/output/<int:channel>/toggle', methods=['POST'])
 @handle_errors
-@rate_limit(max_requests=120, window=60)
+@rate_limit(max_requests=30, window=60)
 def toggle_output(channel):
     """
     출력 채널 토글

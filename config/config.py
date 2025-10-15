@@ -34,6 +34,10 @@ class Config:
     OUTPUT_RETRY_COUNT = int(os.getenv('OUTPUT_RETRY_COUNT', 3))
     OUTPUT_RETRY_DELAY = float(os.getenv('OUTPUT_RETRY_DELAY', 0.1))
 
+    # DI 감지 시 호출할 센서 URL 설정
+    SENSOR_URL = os.getenv('SENSOR_URL')  # 예: http://localhost:5000/get_sensor
+    SENSOR_DEVICE_ID = os.getenv('SENSOR_DEVICE_ID')  # 예: 1
+
     # 로깅 설정
     LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
 

@@ -19,6 +19,7 @@ import logging
 import time
 import threading
 import queue
+import requests
 from typing import List, Optional, Tuple
 from pyModbusTCP.client import ModbusClient
 
@@ -52,7 +53,9 @@ class CIE_H14A_Client:
         poll_interval: float = 0.5,
         auto_off_time: float = 0.0,
         retry_count: int = 3,
-        retry_delay: float = 0.1
+        retry_delay: float = 0.1,
+        sensor_url: Optional[str] = None,
+        sensor_device_id: Optional[str] = None
     ):
         """
         CIE_H14A_Client 초기화
@@ -66,6 +69,8 @@ class CIE_H14A_Client:
             auto_off_time: DO 자동 꺼짐 시간 (초, 0이면 비활성화)
             retry_count: 출력 제어 실패 시 재시도 횟수
             retry_delay: 재시도 간 대기 시간 (초)
+            sensor_url: DI 감지 시 호출할 URL (예: http://localhost:5000/get_sensor)
+            sensor_device_id: 장비 ID (URL 파라미터로 전달)
         """
         self.host = host
         self.port = port
@@ -75,6 +80,8 @@ class CIE_H14A_Client:
         self.auto_off_time = auto_off_time
         self.retry_count = retry_count
         self.retry_delay = retry_delay
+        self.sensor_url = sensor_url
+        self.sensor_device_id = sensor_device_id
 
         # Modbus 클라이언트 초기화
         self.client = ModbusClient(
@@ -92,6 +99,10 @@ class CIE_H14A_Client:
         self._inputs: List[bool] = [False] * self.NUM_CHANNELS
         self._outputs: List[bool] = [False] * self.NUM_CHANNELS
         self._last_update = 0.0
+
+        # DI 변화 감지를 위한 상태
+        self._di_triggered = False  # DI가 하나라도 ON 상태인지
+        self._request_sent = False  # GET 요청을 보냈는지
 
         # 스레드 안전을 위한 락 (짧게만 사용)
         self._lock = threading.Lock()
@@ -111,7 +122,8 @@ class CIE_H14A_Client:
             f"Unit ID: {unit_id}, Timeout: {timeout}s, "
             f"Poll Interval: {poll_interval}s, "
             f"Auto-Off Time: {auto_off_time}s, "
-            f"Retry Count: {retry_count}, Retry Delay: {retry_delay}s"
+            f"Retry Count: {retry_count}, Retry Delay: {retry_delay}s, "
+            f"Sensor URL: {sensor_url}, Device ID: {sensor_device_id}"
         )
 
     def connect(self) -> bool:
@@ -406,7 +418,14 @@ class CIE_H14A_Client:
                 'connected': self._connected,
                 'inputs': self._inputs.copy(),
                 'outputs': self._outputs.copy(),
-                'timestamp': self._last_update
+                'timestamp': self._last_update,
+                'di_detection': {
+                    'enabled': bool(self.sensor_url and self.sensor_device_id),
+                    'di_triggered': self._di_triggered,
+                    'request_sent': self._request_sent,
+                    'sensor_url': self.sensor_url,
+                    'device_id': self.sensor_device_id
+                }
             }
 
     def _process_output_queue(self) -> None:
@@ -447,6 +466,92 @@ class CIE_H14A_Client:
             except Exception as e:
                 logger.error(f"출력 명령 처리 예외: {e}")
                 break
+
+    def _check_di_and_send_request(self) -> None:
+        """
+        DI 상태를 확인하고 필요시 GET 요청 전송
+
+        로직:
+        1. DI가 하나라도 ON이면 -> 요청을 보내지 않았다면 즉시 전송
+        2. 모든 DI가 OFF이면 -> 전송 가능 상태로 리셋
+        """
+        # Sensor URL이 설정되지 않았으면 아무것도 하지 않음
+        if not self.sensor_url or not self.sensor_device_id:
+            return
+
+        with self._lock:
+            inputs_copy = self._inputs.copy()
+
+        # 현재 DI 상태 확인 (하나라도 ON인지)
+        any_di_on = any(inputs_copy)
+
+        # 상태 변화 감지
+        if any_di_on:
+            # DI가 하나라도 ON 상태
+            if not self._di_triggered:
+                # OFF -> ON 전환 (첫 번째 감지)
+                self._di_triggered = True
+                logger.info(f"[DI 감지] DI 입력 감지: {inputs_copy}")
+
+            # GET 요청 전송 (아직 안 보냈으면)
+            if not self._request_sent:
+                self._send_sensor_request(inputs_copy)
+                self._request_sent = True
+            else:
+                logger.debug(f"[DI 감지] DI ON 상태 유지 중 - 중복 전송 방지")
+        else:
+            # 모든 DI가 OFF 상태
+            if self._di_triggered:
+                # ON -> OFF 전환
+                logger.info(f"[DI 감지] 모든 DI OFF - 전송 가능 상태로 리셋")
+                self._di_triggered = False
+                self._request_sent = False
+
+    def _send_sensor_request(self, inputs: List[bool]) -> None:
+        """
+        Sensor GET 요청 전송
+
+        Args:
+            inputs: DI 입력 상태 리스트
+        """
+        try:
+            # URL 파라미터 구성
+            params = {'id': self.sensor_device_id}
+
+            # DI 상태 정보 추가 (선택 사항)
+            di_states = ','.join(['1' if state else '0' for state in inputs])
+            params['di_states'] = di_states
+
+            logger.info(
+                f"[DI 감지] GET 요청 전송 시작 - "
+                f"URL: {self.sensor_url}, Device ID: {self.sensor_device_id}, "
+                f"DI States: [{di_states}]"
+            )
+
+            # GET 요청 전송 (타임아웃 5초, 블로킹하지 않도록 짧게)
+            response = requests.get(
+                self.sensor_url,
+                params=params,
+                timeout=5.0
+            )
+
+            if response.status_code == 200:
+                logger.info(
+                    f"[DI 감지] GET 요청 성공 - "
+                    f"Status: {response.status_code}, Response: {response.text[:200]}"
+                )
+            else:
+                logger.warning(
+                    f"[DI 감지] GET 요청 실패 - "
+                    f"Status: {response.status_code}, Response: {response.text[:200]}"
+                )
+
+        except requests.Timeout:
+            logger.error(f"[DI 감지] GET 요청 타임아웃 - URL: {self.sensor_url}")
+        except requests.RequestException as e:
+            logger.error(f"[DI 감지] GET 요청 예외 - URL: {self.sensor_url}, Error: {e}")
+        except Exception as e:
+            logger.error(f"[DI 감지] GET 요청 처리 중 예외: {e}", exc_info=True)
 
     def _polling_loop(self) -> None:
         """
@@ -497,6 +602,10 @@ class CIE_H14A_Client:
                             # 읽기 실패 시 연결 상태 플래그 업데이트
                             if consecutive_errors >= 3:
                                 self._connected = False
+
+                        # DI 감지 및 GET 요청 전송 (입력 읽기 성공 시)
+                        if success_input:
+                            self._check_di_and_send_request()
 
                         # 출력 명령 큐 처리 (연결되어 있을 때만)
                         self._process_output_queue()
