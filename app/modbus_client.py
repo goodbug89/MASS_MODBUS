@@ -50,7 +50,7 @@ class CIE_H14A_Client:
         port: int = 502,
         unit_id: int = 1,
         timeout: float = 5.0,
-        poll_interval: float = 0.5,
+        poll_interval: float = 0.1,
         auto_off_time: float = 0.0,
         retry_count: int = 3,
         retry_delay: float = 0.1,
