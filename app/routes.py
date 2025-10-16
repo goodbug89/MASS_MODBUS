@@ -18,54 +18,51 @@ from app.validators import (
 # Blueprint 생성
 bp = Blueprint('api', __name__)
 
-# Rate limiting (간단한 구현)
-_request_counts = {}
+# Rate limiting (간단한 구현 - 전체 시스템 합산)
+_system_request_counts = []  # 전체 시스템의 요청 타임스탬프 리스트
 _RATE_LIMIT_WINDOW = 60  # 초
-_RATE_LIMIT_MAX_REQUESTS = 100  # 분당 최대 요청 수
+_RATE_LIMIT_MAX_REQUESTS = 500  # 분당 최대 요청 수 (전체 시스템 합산)
 
 
-def rate_limit(max_requests=100, window=60):
+def rate_limit(max_requests=500, window=60):
     """
-    Rate limiting 데코레이터
+    Rate limiting 데코레이터 (전체 시스템 합산)
+
+    모든 클라이언트의 요청을 합산하여 제한합니다.
 
     Args:
-        max_requests: 시간 창 내 최대 요청 수
+        max_requests: 시간 창 내 최대 요청 수 (전체 시스템)
         window: 시간 창 크기 (초)
     """
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
-            # 클라이언트 IP 가져오기
-            client_ip = request.remote_addr
-
-            # X-Forwarded-For 헤더 확인 (프록시 환경)
-            if request.headers.get('X-Forwarded-For'):
-                client_ip = request.headers.get('X-Forwarded-For').split(',')[0].strip()
+            global _system_request_counts
 
             current_time = time.time()
 
             # Rate limit 데이터 정리 (오래된 항목 제거)
-            if client_ip in _request_counts:
-                _request_counts[client_ip] = [
-                    timestamp for timestamp in _request_counts[client_ip]
-                    if current_time - timestamp < window
-                ]
-            else:
-                _request_counts[client_ip] = []
+            _system_request_counts = [
+                timestamp for timestamp in _system_request_counts
+                if current_time - timestamp < window
+            ]
 
-            # Rate limit 확인
-            if len(_request_counts[client_ip]) >= max_requests:
+            # Rate limit 확인 (전체 시스템)
+            if len(_system_request_counts) >= max_requests:
                 current_app.logger.warning(
-                    f"Rate limit exceeded: {client_ip} "
-                    f"({len(_request_counts[client_ip])} requests in {window}s)"
+                    f"Rate limit exceeded: System total "
+                    f"({len(_system_request_counts)} requests in {window}s), "
+                    f"Client: {request.remote_addr}"
                 )
                 return jsonify({
-                    'error': '요청 한도를 초과했습니다',
-                    'retry_after': window
+                    'error': '시스템 요청 한도를 초과했습니다',
+                    'message': f'전체 시스템 요청이 {max_requests}회/분을 초과했습니다',
+                    'retry_after': window,
+                    'current_requests': len(_system_request_counts)
                 }), 429
 
-            # 요청 기록
-            _request_counts[client_ip].append(current_time)
+            # 요청 기록 (전체 시스템)
+            _system_request_counts.append(current_time)
 
             return func(*args, **kwargs)
         return wrapper
@@ -185,17 +182,6 @@ def get_status():
         # 장비 이름 추가
         device_config = current_app.config['DEVICES'].get(device_id, {})
         status['name'] = device_config.get('name', device_id)
-
-        # 민감한 정보 필터링 (프로덕션 환경에서)
-        if current_app.config.get('FLASK_ENV') == 'production':
-            if 'di_detection' in status and 'sensor_url' in status['di_detection']:
-                url = status['di_detection']['sensor_url']
-                try:
-                    from urllib.parse import urlparse
-                    parsed = urlparse(url)
-                    status['di_detection']['sensor_url'] = f"{parsed.scheme}://{parsed.netloc}/***"
-                except:
-                    status['di_detection']['sensor_url'] = '***'
 
         all_status[device_id] = status
 
@@ -334,18 +320,20 @@ def get_sensor():
                 'error': 'Invalid DI states format'
             }), 400
 
+    # 밀리초 단위 타임스탬프
+    timestamp_ms = int(time.time() * 1000)
+
     current_app.logger.info(
         f"[Sensor Endpoint] DI detection received - "
         f"Device ID: {device_id}, DI States: [{di_states}], "
-        f"Client: {request.remote_addr}"
+        f"Time: {timestamp_ms}ms, Client: {request.remote_addr}"
     )
 
     return jsonify({
-        'success': True,
-        'message': 'DI detection received',
-        'device_id': device_id,
-        'di_states': di_states,
-        'timestamp': time.time()
+        'status': 'ok',
+        'id': device_id,
+        'di': di_states,
+        'time': timestamp_ms
     })
 
 
@@ -513,18 +501,10 @@ def get_devices_list():
     for device_id, client in modbus_clients.items():
         device_config = current_app.config['DEVICES'][device_id]
 
-        # IP 마스킹 (프로덕션 환경)
-        host = device_config['host']
-        if current_app.config.get('FLASK_ENV') == 'production':
-            host_parts = host.split('.')
-            if len(host_parts) == 4:
-                host_parts[-1] = '***'
-                host = '.'.join(host_parts)
-
         devices_list.append({
             'id': device_id,
             'name': device_config['name'],
-            'host': host,
+            'host': device_config['host'],
             'connected': client.is_connected()
         })
 
@@ -662,6 +642,192 @@ def toggle_device_output(device_id, channel):
     else:
         return jsonify({
             'error': 'Output toggle failed',
+            'device_id': device_id,
+            'channel': channel
+        }), 500
+
+
+# ============================================================================
+# GET 방식 제어 API (간단한 테스트용)
+# ============================================================================
+
+@bp.route('/api/devices/<device_id>/output/<int:channel>/set', methods=['GET'])
+@handle_errors
+@rate_limit(max_requests=120, window=60)
+def set_device_output_get(device_id, channel):
+    """
+    GET 방식으로 특정 장비의 출력 채널 제어 (테스트/간편 제어용)
+
+    웹 브라우저에서 직접 URL로 접근하여 제어할 수 있습니다.
+
+    Args:
+        device_id: 장비 ID
+        channel: 출력 채널 번호 (0-3)
+
+    Query Parameters:
+        state: on/off 또는 1/0 또는 true/false
+
+    Examples:
+        http://localhost:5000/api/devices/device2/output/1/set?state=on
+        http://localhost:5000/api/devices/device2/output/1/set?state=off
+        http://localhost:5000/api/devices/device2/output/1/set?state=1
+        http://localhost:5000/api/devices/device2/output/1/set?state=0
+
+    Returns:
+        JSON: 제어 결과
+    """
+    # 장비 ID 검증
+    device_id = validate_device_id(device_id, list(modbus_clients.keys()))
+
+    if device_id not in modbus_clients:
+        return jsonify({'error': 'Device not found'}), 404
+
+    # 채널 번호 검증
+    channel = validate_channel(channel)
+
+    # state 파라미터 읽기
+    state_param = request.args.get('state', '').lower()
+
+    if not state_param:
+        return jsonify({
+            'error': 'Missing state parameter',
+            'message': 'Please provide state parameter (on/off, 1/0, true/false)',
+            'examples': [
+                f'/api/devices/{device_id}/output/{channel}/set?state=on',
+                f'/api/devices/{device_id}/output/{channel}/set?state=off'
+            ]
+        }), 400
+
+    # state 값 파싱 (on/off, 1/0, true/false 모두 지원)
+    if state_param in ['on', '1', 'true']:
+        state = True
+    elif state_param in ['off', '0', 'false']:
+        state = False
+    else:
+        return jsonify({
+            'error': 'Invalid state value',
+            'message': f'State must be one of: on/off, 1/0, true/false (got: {state_param})'
+        }), 400
+
+    # 출력 제어
+    client = modbus_clients[device_id]
+    success = client.write_output(channel, state)
+
+    if success:
+        current_app.logger.info(
+            f"[{device_id}] Output control (GET): channel={channel}, state={state}, "
+            f"client={request.remote_addr}"
+        )
+        return jsonify({
+            'success': True,
+            'device_id': device_id,
+            'channel': channel,
+            'state': state,
+            'message': f'DO{channel} turned {"ON" if state else "OFF"}'
+        })
+    else:
+        return jsonify({
+            'error': 'Output control failed',
+            'device_id': device_id,
+            'channel': channel
+        }), 500
+
+
+@bp.route('/api/devices/<device_id>/output/<int:channel>/on', methods=['GET'])
+@handle_errors
+@rate_limit(max_requests=120, window=60)
+def turn_on_device_output(device_id, channel):
+    """
+    GET 방식으로 특정 장비의 출력 켜기 (간편 제어용)
+
+    Args:
+        device_id: 장비 ID
+        channel: 출력 채널 번호 (0-3)
+
+    Example:
+        http://localhost:5000/api/devices/device2/output/1/on
+
+    Returns:
+        JSON: 제어 결과
+    """
+    # 장비 ID 검증
+    device_id = validate_device_id(device_id, list(modbus_clients.keys()))
+
+    if device_id not in modbus_clients:
+        return jsonify({'error': 'Device not found'}), 404
+
+    # 채널 번호 검증
+    channel = validate_channel(channel)
+
+    # 출력 켜기
+    client = modbus_clients[device_id]
+    success = client.write_output(channel, True)
+
+    if success:
+        current_app.logger.info(
+            f"[{device_id}] Output ON (GET): channel={channel}, "
+            f"client={request.remote_addr}"
+        )
+        return jsonify({
+            'success': True,
+            'device_id': device_id,
+            'channel': channel,
+            'state': True,
+            'message': f'DO{channel} turned ON'
+        })
+    else:
+        return jsonify({
+            'error': 'Output control failed',
+            'device_id': device_id,
+            'channel': channel
+        }), 500
+
+
+@bp.route('/api/devices/<device_id>/output/<int:channel>/off', methods=['GET'])
+@handle_errors
+@rate_limit(max_requests=120, window=60)
+def turn_off_device_output(device_id, channel):
+    """
+    GET 방식으로 특정 장비의 출력 끄기 (간편 제어용)
+
+    Args:
+        device_id: 장비 ID
+        channel: 출력 채널 번호 (0-3)
+
+    Example:
+        http://localhost:5000/api/devices/device2/output/1/off
+
+    Returns:
+        JSON: 제어 결과
+    """
+    # 장비 ID 검증
+    device_id = validate_device_id(device_id, list(modbus_clients.keys()))
+
+    if device_id not in modbus_clients:
+        return jsonify({'error': 'Device not found'}), 404
+
+    # 채널 번호 검증
+    channel = validate_channel(channel)
+
+    # 출력 끄기
+    client = modbus_clients[device_id]
+    success = client.write_output(channel, False)
+
+    if success:
+        current_app.logger.info(
+            f"[{device_id}] Output OFF (GET): channel={channel}, "
+            f"client={request.remote_addr}"
+        )
+        return jsonify({
+            'success': True,
+            'device_id': device_id,
+            'channel': channel,
+            'state': False,
+            'message': f'DO{channel} turned OFF'
+        })
+    else:
+        return jsonify({
+            'error': 'Output control failed',
             'device_id': device_id,
             'channel': channel
         }), 500

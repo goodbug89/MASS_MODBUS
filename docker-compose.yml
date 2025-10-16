@@ -1,4 +1,31 @@
 services:
+  # Modbus 시뮬레이터 (4대의 가상 CIE-H14A 장비)
+  modbus-simulator:
+    build:
+      context: .
+      dockerfile: Dockerfile.simulator
+    container_name: modbus-simulator
+    restart: unless-stopped
+    ports:
+      - "5020:5020"
+      - "5021:5021"
+      - "5022:5022"
+      - "5023:5023"
+    networks:
+      - modbus-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 5020)); s.close()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Flask 애플리케이션
   modbus-controller:
     build: .
     container_name: modbus-controller-multi
@@ -11,8 +38,7 @@ services:
       - SECRET_KEY=${SECRET_KEY:-change-this-secret-key-in-production}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
 
-      # 전역 Modbus 기본값 (모든 장비에 공통 적용)
-      - MODBUS_DEFAULT_PORT=${MODBUS_DEFAULT_PORT:-502}
+      # 전역 Modbus 기본값 (개별 장비 설정이 없을 때 사용)
       - MODBUS_DEFAULT_UNIT_ID=${MODBUS_DEFAULT_UNIT_ID:-1}
       - MODBUS_DEFAULT_TIMEOUT=${MODBUS_DEFAULT_TIMEOUT:-0.3}
       - MODBUS_DEFAULT_POLL_INTERVAL=${MODBUS_DEFAULT_POLL_INTERVAL:-0.5}
@@ -28,10 +54,9 @@ services:
 
     env_file:
       - .env
-    # 호스트 네트워크 모드 사용 (여러 CIE-H14A 장비 접근용)
-    # network_mode: host
-    # 위 옵션을 사용하면 ports 설정이 무시됩니다.
-    # 필요시 주석을 해제하고 ports를 주석 처리하세요.
+    depends_on:
+      modbus-simulator:
+        condition: service_healthy
     networks:
       - modbus-network
     healthcheck:

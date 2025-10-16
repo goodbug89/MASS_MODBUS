@@ -1,0 +1,21 @@
+# Modbus TCP Simulator Dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# 시스템 의존성 설치
+RUN apt-get update && apt-get install -y \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# pyModbusTCP 0.2.0 설치 (시뮬레이터 호환성)
+RUN pip install --no-cache-dir pyModbusTCP==0.2.0
+
+# 시뮬레이터 파일 복사
+COPY tests/ /app/tests/
+
+# 포트 노출 (4대 시뮬레이터)
+EXPOSE 5020 5021 5022 5023
+
+# 시뮬레이터 실행
+CMD ["python", "-u", "tests/modbus_simulator.py"]

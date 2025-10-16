@@ -20,7 +20,17 @@
       "Bash(timeout 5 docker-compose logs:*)",
       "Bash(Select-String -Pattern \"Sensor URL\")",
       "Bash(timeout 3 docker-compose logs -f)",
-      "Bash(timeout:*)"
+      "Bash(timeout:*)",
+      "Bash(time:*)",
+      "Bash(Select-String \"DI|input\")",
+      "Bash(pip install:*)",
+      "Bash(venvScripts:*)",
+      "Bash(test:*)",
+      "Bash(git push:*)",
+      "Bash(Select-String \"5020|5021|5022|5023\")",
+      "Bash(pip show:*)",
+      "Bash(pip uninstall:*)",
+      "Bash(Select-String \"python\")"
     ],
     "deny": [],
     "ask": []

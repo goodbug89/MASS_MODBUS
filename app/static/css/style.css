@@ -106,16 +106,6 @@ body::before {
     color: var(--text-primary);
 }
 
-.logo-container::before {
-    content: '경우';
-    font-size: 1.3rem;
-    font-weight: 900;
-    background: linear-gradient(135deg, #00ff88 0%, #00aaff 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    letter-spacing: 1px;
-}
 
 .logo-img {
     height: 35px;

@@ -103,6 +103,7 @@ class CIE_H14A_Client:
         # DI 변화 감지를 위한 상태
         self._di_triggered = False  # DI가 하나라도 ON 상태인지
         self._request_sent = False  # GET 요청을 보냈는지
+        self._last_di_states: List[bool] = [False] * self.NUM_CHANNELS  # 마지막 전송한 DI 상태
 
         # 스레드 안전을 위한 락 (짧게만 사용)
         self._lock = threading.Lock()
@@ -424,7 +425,8 @@ class CIE_H14A_Client:
                     'di_triggered': self._di_triggered,
                     'request_sent': self._request_sent,
                     'sensor_url': self.sensor_url,
-                    'device_id': self.sensor_device_id
+                    'device_id': self.sensor_device_id,
+                    'di_states': self._last_di_states.copy()
                 }
             }
 
@@ -497,6 +499,8 @@ class CIE_H14A_Client:
             if not self._request_sent:
                 self._send_sensor_request(inputs_copy)
                 self._request_sent = True
+                with self._lock:
+                    self._last_di_states = inputs_copy.copy()
             else:
                 logger.debug(f"[DI 감지] DI ON 상태 유지 중 - 중복 전송 방지")
         else:
@@ -506,6 +510,8 @@ class CIE_H14A_Client:
                 logger.info(f"[DI 감지] 모든 DI OFF - 전송 가능 상태로 리셋")
                 self._di_triggered = False
                 self._request_sent = False
+                with self._lock:
+                    self._last_di_states = [False] * self.NUM_CHANNELS
 
     def _send_sensor_request(self, inputs: List[bool]) -> None:
         """
@@ -515,17 +521,20 @@ class CIE_H14A_Client:
             inputs: DI 입력 상태 리스트
         """
         try:
-            # URL 파라미터 구성
-            params = {'id': self.sensor_device_id}
+            # 밀리초 단위 타임스탬프 생성
+            timestamp_ms = int(time.time() * 1000)
 
-            # DI 상태 정보 추가 (선택 사항)
-            di_states = ','.join(['1' if state else '0' for state in inputs])
-            params['di_states'] = di_states
+            # URL 파라미터 구성
+            params = {
+                'id': self.sensor_device_id,
+                'di_states': ','.join(['1' if state else '0' for state in inputs]),
+                'time': timestamp_ms
+            }
 
             logger.info(
                 f"[DI 감지] GET 요청 전송 시작 - "
                 f"URL: {self.sensor_url}, Device ID: {self.sensor_device_id}, "
-                f"DI States: [{di_states}]"
+                f"DI States: [{params['di_states']}], Time: {timestamp_ms}ms"
             )
 
             # GET 요청 전송 (타임아웃 5초, 블로킹하지 않도록 짧게)

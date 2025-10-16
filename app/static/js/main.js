@@ -139,6 +139,8 @@ function createDeviceCard(device) {
                     <small>
                         <i class="bi bi-radar"></i> DI 감지:
                         <span class="badge bg-secondary" id="di-detect-badge-${device.id}">대기 중</span>
+                        <br>
+                        <span class="text-muted" id="di-detect-url-${device.id}" style="font-size: 0.85em; word-break: break-all;"></span>
                     </small>
                 </div>
             </div>
@@ -380,6 +382,7 @@ function updateOutputButton(deviceId, channel, state) {
 function updateDIDetectionStatus(deviceId, diDetection) {
     const container = document.getElementById(`di-detect-${deviceId}`);
     const badge = document.getElementById(`di-detect-badge-${deviceId}`);
+    const urlDisplay = document.getElementById(`di-detect-url-${deviceId}`);
 
     if (!diDetection.enabled) {
         container.style.display = 'none';
@@ -387,6 +390,22 @@ function updateDIDetectionStatus(deviceId, diDetection) {
     }
 
     container.style.display = 'block';
+
+    // URL 표시 (파라미터 포함 전체 URL)
+    if (diDetection.di_triggered && diDetection.request_sent && diDetection.sensor_url && diDetection.device_id) {
+        // 실제 전송된 DI 상태 기반으로 파라미터 생성
+        const diStates = diDetection.di_states || [false, false, false, false];
+        const timestamp = Date.now(); // 밀리초 단위 타임스탬프
+        const params = new URLSearchParams({
+            id: diDetection.device_id,
+            di_states: diStates.map(s => s ? '1' : '0').join(','),
+            time: timestamp
+        });
+        const fullUrl = `${diDetection.sensor_url}?${params.toString()}`;
+        urlDisplay.textContent = `URL: ${fullUrl}`;
+    } else {
+        urlDisplay.textContent = '';
+    }
 
     if (diDetection.di_triggered && diDetection.request_sent) {
         badge.className = 'badge bg-danger';

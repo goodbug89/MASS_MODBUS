@@ -18,6 +18,7 @@ Simulated Devices:
 import time
 import threading
 import logging
+import random
 from typing import Dict, List
 from pyModbusTCP.server import ModbusServer
 
@@ -51,8 +52,12 @@ class CIE_H14A_Simulator:
         self.host = host
         self.port = port
 
-        # Modbus 서버 인스턴스
-        self.server = ModbusServer(host=host, port=port, no_block=True)
+        # Modbus 서버 인스턴스 (IPv4 only로 설정)
+        try:
+            self.server = ModbusServer(host=host, port=port, no_block=True, ipv6=False)
+        except TypeError:
+            # 구버전은 ipv6 파라미터가 없음
+            self.server = ModbusServer(host=host, port=port, no_block=True)
 
         # 시뮬레이션 상태
         self._running = False
@@ -68,9 +73,17 @@ class CIE_H14A_Simulator:
             bool: 시작 성공 여부
         """
         try:
+            logger.info(f"[{self.device_id}] Modbus 서버 시작 시도: {self.host}:{self.port}")
+
             # Modbus 서버 시작
-            if not self.server.start():
-                logger.error(f"[{self.device_id}] Modbus 서버 시작 실패")
+            self.server.start()
+
+            # pyModbusTCP 0.2.0에서는 start()가 None을 반환하므로 is_run으로 확인
+            if not self.server.is_run:
+                logger.error(
+                    f"[{self.device_id}] Modbus 서버 시작 실패 - "
+                    f"포트 {self.port}가 이미 사용 중이거나 권한이 없을 수 있습니다"
+                )
                 return False
 
             logger.info(f"[{self.device_id}] Modbus 서버 시작 성공: {self.host}:{self.port}")
@@ -91,7 +104,7 @@ class CIE_H14A_Simulator:
             return True
 
         except Exception as e:
-            logger.error(f"[{self.device_id}] 시작 오류: {e}")
+            logger.error(f"[{self.device_id}] 시작 오류: {e}", exc_info=True)
             return False
 
     def stop(self) -> None:
@@ -131,12 +144,12 @@ class CIE_H14A_Simulator:
 
         주기적으로:
         1. DO 상태 변화 감지 및 로깅
-        2. DI 상태 자동 변화 (테스트용)
+        2. DI 상태 자동 랜덤 변화 (1초 주기로 ON, 1초 유지 후 OFF)
         """
         logger.info(f"[{self.device_id}] 시뮬레이션 루프 시작")
 
         prev_do_states = [False] * 4
-        cycle_count = 0
+        di_auto_timer = 0  # DI 자동 변화 타이머
 
         while self._running:
             try:
@@ -157,12 +170,13 @@ class CIE_H14A_Simulator:
 
                 prev_do_states = current_do_states.copy()
 
-                # 10초마다 DI 상태 자동 변화 (테스트용)
-                cycle_count += 1
-                if cycle_count % 20 == 0:  # 10초 (0.5초 × 20)
-                    self._auto_toggle_di()
+                # DI 자동 랜덤 변화 (1초 주기)
+                di_auto_timer += 0.1
+                if di_auto_timer >= 1.0:  # 1초마다
+                    self._auto_random_di()
+                    di_auto_timer = 0
 
-                time.sleep(0.5)
+                time.sleep(0.1)  # 100ms 간격으로 체크
 
             except Exception as e:
                 logger.error(f"[{self.device_id}] 시뮬레이션 루프 오류: {e}")
@@ -170,28 +184,32 @@ class CIE_H14A_Simulator:
 
         logger.info(f"[{self.device_id}] 시뮬레이션 루프 종료")
 
-    def _auto_toggle_di(self) -> None:
+    def _auto_random_di(self) -> None:
         """
-        DI 상태 자동 토글 (테스트용)
+        DI 상태 자동 랜덤 변화 (테스트용)
 
-        DI0을 주기적으로 ON → OFF 토글하여 DI 감지 시스템 테스트
+        1초마다 호출되며:
+        - DI0~DI3 중 랜덤하게 1개 채널 선택
+        - 해당 채널을 1초간 ON 상태로 설정
+        - 다음 호출 시 이전 채널은 자동으로 OFF됨 (모든 채널 초기화 후 새 채널만 ON)
         """
         try:
-            # DI0 현재 상태 읽기
-            di0_states = self.server.data_bank.get_discrete_inputs(0, 1)
-            current_state = di0_states[0] if di0_states else False
+            # 랜덤 채널 선택 (0~3)
+            random_channel = random.randint(0, 3)
 
-            # 토글
-            new_state = not current_state
-            self.server.data_bank.set_discrete_inputs(0, [new_state])
+            # 모든 DI를 OFF로 설정
+            for ch in range(4):
+                self.server.data_bank.set_discrete_inputs(ch, [False])
+
+            # 선택된 채널만 ON
+            self.server.data_bank.set_discrete_inputs(random_channel, [True])
 
             logger.info(
-                f"[{self.device_id}] DI0 자동 토글: "
-                f"{'OFF' if current_state else 'ON'} → {'ON' if new_state else 'OFF'}"
+                f"[{self.device_id}] DI 랜덤 활성화: DI{random_channel} → ON (1초 유지)"
             )
 
         except Exception as e:
-            logger.error(f"[{self.device_id}] DI 자동 토글 오류: {e}")
+            logger.error(f"[{self.device_id}] DI 랜덤 변화 오류: {e}")
 
     def set_di(self, channel: int, state: bool) -> bool:
         """
@@ -288,10 +306,10 @@ class MultiDeviceSimulator:
 
         # 4대 장비 설정
         self.devices_config = {
-            'device1': {'name': 'Lane1', 'host': '127.0.0.1', 'port': 5020},
-            'device2': {'name': 'Lane2', 'host': '127.0.0.1', 'port': 5021},
-            'device3': {'name': 'Lane3', 'host': '127.0.0.1', 'port': 5022},
-            'device4': {'name': 'Lane4', 'host': '127.0.0.1', 'port': 5023},
+            'device1': {'name': 'Lane1', 'host': '0.0.0.0', 'port': 5020},
+            'device2': {'name': 'Lane2', 'host': '0.0.0.0', 'port': 5021},
+            'device3': {'name': 'Lane3', 'host': '0.0.0.0', 'port': 5022},
+            'device4': {'name': 'Lane4', 'host': '0.0.0.0', 'port': 5023},
         }
 
         logger.info("멀티 디바이스 시뮬레이터 관리자 초기화")
@@ -401,7 +419,7 @@ def main():
         print("      python run.py")
         print("   2. Open browser: http://localhost:5000")
         print("   3. Click DO buttons to test output control")
-        print("   4. DI0 auto-toggles every 10 seconds for DI detection test")
+        print("   4. DI0~DI3 randomly activate every 1 second (1 sec ON, auto OFF)")
 
         print("\n>> Press Ctrl+C to stop\n")
 

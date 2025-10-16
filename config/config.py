@@ -22,9 +22,8 @@ class Config:
     FLASK_ENV = os.getenv('FLASK_ENV', 'production')
 
     # ===========================================================================
-    # Modbus 전역 기본값 (모든 장비에 공통 적용)
+    # Modbus 전역 기본값 (개별 장비 설정이 없을 때 사용)
     # ===========================================================================
-    MODBUS_DEFAULT_PORT = int(os.getenv('MODBUS_DEFAULT_PORT', 502))
     MODBUS_DEFAULT_UNIT_ID = int(os.getenv('MODBUS_DEFAULT_UNIT_ID', 1))
     MODBUS_DEFAULT_TIMEOUT = float(os.getenv('MODBUS_DEFAULT_TIMEOUT', 0.3))
     MODBUS_DEFAULT_POLL_INTERVAL = float(os.getenv('MODBUS_DEFAULT_POLL_INTERVAL', 0.5))
@@ -95,7 +94,7 @@ class Config:
             devices[device_id] = {
                 'name': os.getenv(f'DEVICE{i}_NAME', f'Device{i}'),
                 'host': host,
-                'port': int(os.getenv(f'DEVICE{i}_PORT', cls.MODBUS_DEFAULT_PORT)),
+                'port': int(os.getenv(f'DEVICE{i}_PORT', 502)),  # PORT는 필수 (기본값: 502)
                 'unit_id': int(os.getenv(f'DEVICE{i}_UNIT_ID', cls.MODBUS_DEFAULT_UNIT_ID)),
                 'timeout': float(os.getenv(f'DEVICE{i}_TIMEOUT', cls.MODBUS_DEFAULT_TIMEOUT)),
                 'poll_interval': float(os.getenv(f'DEVICE{i}_POLL_INTERVAL', cls.MODBUS_DEFAULT_POLL_INTERVAL)),

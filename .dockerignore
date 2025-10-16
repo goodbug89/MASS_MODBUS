@@ -23,8 +23,10 @@ docs/
 *.txt
 !requirements.txt
 
-# 테스트
-tests/
+# 테스트 (시뮬레이터는 tests/modbus_simulator.py가 필요하므로 선택적 제외)
+tests/*
+!tests/modbus_simulator.py
+!tests/__init__.py
 .pytest_cache/
 .coverage
 htmlcov/
