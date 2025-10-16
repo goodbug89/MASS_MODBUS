@@ -112,11 +112,11 @@
 | `MODBUS_DEFAULT_PORT` | Modbus TCP 포트 | 502 |
 | `MODBUS_DEFAULT_UNIT_ID` | Modbus Unit ID | 1 |
 | `MODBUS_DEFAULT_TIMEOUT` | 연결 타임아웃 (초) | 0.3 |
-| `MODBUS_DEFAULT_POLL_INTERVAL` | 폴링 간격 (초) | 0.5 |
+| `MODBUS_DEFAULT_POLL_INTERVAL` | DI 폴링 간격 (초) | **0.1** (100ms) |
 | `MODBUS_DEFAULT_AUTO_OFF_TIME` | 자동 OFF 시간 (초) | 1.0 |
 | `MODBUS_DEFAULT_RETRY_COUNT` | 재시도 횟수 | 3 |
 | `MODBUS_DEFAULT_RETRY_DELAY` | 재시도 간격 (초) | 0.1 |
-| `SENSOR_URL` | 센서 API URL (공통) | http://localhost:5000/api/get_sensor |
+| `SENSOR_URL` | DI 감지 시 호출할 센서 URL (공통) | http://localhost:5000/api/get_sensor |
 | `FLASK_ENV` | Flask 환경 | production |
 | `SECRET_KEY` | Flask 시크릿 키 | (변경 필수) |
 
@@ -200,17 +200,41 @@ MASS_MODBUS/
 
 ### 멀티 디바이스 API 엔드포인트
 
+#### 📊 상태 조회 및 모니터링
+
 | 엔드포인트 | 메서드 | 설명 |
 |-----------|--------|------|
 | `/` | GET | 메인 웹 페이지 |
-| `/health` | GET | 헬스 체크 |
+| `/health` | GET | 헬스 체크 (전체 장비 연결 상태) |
 | `/api/status` | GET | **모든 장비** 상태 조회 |
 | `/api/devices` | GET | 장비 목록 조회 |
 | `/api/devices/<device_id>/status` | GET | 특정 장비 상태 조회 |
-| `/api/devices/<device_id>/output/<channel>` | POST | 특정 장비 출력 제어 |
-| `/api/devices/<device_id>/output/<channel>/toggle` | POST | 특정 장비 출력 토글 |
-| `/api/events` | GET | **모든 장비** SSE 스트림 |
+| `/api/events` | GET | **모든 장비** SSE 실시간 스트림 |
 | `/api/config` | GET | 현재 설정 조회 |
+| `/api/monitor` | GET | API 모니터링 정보 조회 |
+
+#### ⚡ 출력 제어 (POST 방식)
+
+| 엔드포인트 | 메서드 | 설명 | Body |
+|-----------|--------|------|------|
+| `/api/devices/<device_id>/output/<channel>` | POST | 특정 장비 출력 ON/OFF | `{"state": true/false}` |
+| `/api/devices/<device_id>/output/<channel>/toggle` | POST | 특정 장비 출력 토글 | (없음) |
+
+#### 🌐 출력 제어 (GET 방식 - 웹 브라우저 직접 제어)
+
+| 엔드포인트 | 메서드 | 설명 | 사용 예시 |
+|-----------|--------|------|----------|
+| `/api/devices/<device_id>/output/<channel>/on` | GET | 출력 켜기 | `/api/devices/device1/output/0/on` |
+| `/api/devices/<device_id>/output/<channel>/off` | GET | 출력 끄기 | `/api/devices/device1/output/0/off` |
+| `/api/devices/<device_id>/output/<channel>/set?state=<value>` | GET | 파라미터로 제어 | `/api/devices/device1/output/0/set?state=on` |
+
+**GET 방식 state 파라미터**: `on`, `off`, `1`, `0`, `true`, `false`
+
+#### 📡 센서 엔드포인트 (DI 감지 시 자동 호출)
+
+| 엔드포인트 | 메서드 | 설명 |
+|-----------|--------|------|
+| `/api/get_sensor?id=<device_id>&di_states=<states>&time=<ms>` | GET | DI 감지 수신 |
 
 ### 하위 호환 API (레거시)
 
@@ -252,17 +276,38 @@ curl http://localhost:5000/api/status
 }
 ```
 
-**특정 장비 출력 제어**
+**특정 장비 출력 제어 (POST)**
 ```bash
+# DO0 켜기
 curl -X POST http://localhost:5000/api/devices/device1/output/0 \
   -H "Content-Type: application/json" \
   -d '{"state": true}'
+
+# DO0 끄기
+curl -X POST http://localhost:5000/api/devices/device1/output/0 \
+  -H "Content-Type: application/json" \
+  -d '{"state": false}'
+```
+
+**특정 장비 출력 제어 (GET - 웹 브라우저)**
+```bash
+# 방법 1: /on, /off 엔드포인트
+curl http://localhost:5000/api/devices/device1/output/0/on
+curl http://localhost:5000/api/devices/device1/output/0/off
+
+# 방법 2: /set 엔드포인트 (파라미터 사용)
+curl http://localhost:5000/api/devices/device1/output/0/set?state=on
+curl http://localhost:5000/api/devices/device1/output/0/set?state=off
+curl http://localhost:5000/api/devices/device1/output/0/set?state=1
+curl http://localhost:5000/api/devices/device1/output/0/set?state=0
+
+# 웹 브라우저 주소창에 직접 입력 가능:
+# http://localhost:5000/api/devices/device2/output/1/on
 ```
 
 **특정 장비 출력 토글**
 ```bash
-curl -X POST http://localhost:5000/api/devices/device2/output/3/toggle \
-  -H "Content-Type: application/json"
+curl -X POST http://localhost:5000/api/devices/device2/output/3/toggle
 ```
 
 **SSE 스트림 (모든 장비 실시간 업데이트)**
