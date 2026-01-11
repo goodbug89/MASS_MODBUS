@@ -69,6 +69,64 @@ def rate_limit(max_requests=500, window=60):
     return decorator
 
 
+def require_api_key(func):
+    """
+    API 키 인증 데코레이터
+
+    환경 변수 SIMULATOR_API_KEY가 설정된 경우, 요청 헤더의 X-API-Key와 비교하여 인증합니다.
+    설정되지 않은 경우 인증을 건너뜁니다 (개발 환경용).
+
+    사용법:
+        @bp.route('/api/protected')
+        @require_api_key
+        def protected_endpoint():
+            return jsonify({'message': 'authorized'})
+
+    클라이언트 요청:
+        curl -H "X-API-Key: your-secret-key" http://localhost:5000/api/protected
+    """
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        import os
+
+        # 환경 변수에서 API 키 로드
+        expected_api_key = os.getenv('SIMULATOR_API_KEY')
+
+        # API 키가 설정되지 않은 경우 인증 건너뛰기 (개발 환경)
+        if not expected_api_key:
+            current_app.logger.warning(
+                "SIMULATOR_API_KEY not set - API authentication disabled. "
+                "Set SIMULATOR_API_KEY in .env for production."
+            )
+            return func(*args, **kwargs)
+
+        # 요청 헤더에서 API 키 확인
+        provided_api_key = request.headers.get('X-API-Key')
+
+        if not provided_api_key:
+            current_app.logger.warning(
+                f"API key missing from {request.remote_addr} for {request.path}"
+            )
+            return jsonify({
+                'error': 'Unauthorized',
+                'message': 'API key required. Provide X-API-Key header.'
+            }), 401
+
+        if provided_api_key != expected_api_key:
+            current_app.logger.warning(
+                f"Invalid API key from {request.remote_addr} for {request.path}"
+            )
+            return jsonify({
+                'error': 'Forbidden',
+                'message': 'Invalid API key'
+            }), 403
+
+        # 인증 성공
+        return func(*args, **kwargs)
+
+    return wrapper
+
+
 def handle_errors(func):
     """
     에러 처리 데코레이터
@@ -831,3 +889,352 @@ def turn_off_device_output(device_id, channel):
             'device_id': device_id,
             'channel': channel
         }), 500
+
+
+# ==============================================================================
+# 시뮬레이터 제어 API
+# ==============================================================================
+#
+# ⚠️ 보안 경고 ⚠️
+#
+# 이 엔드포인트들은 Docker 컨테이너를 제어하기 위해 subprocess를 사용합니다.
+#
+# 중요 보안 고려사항:
+# 1. Docker 소켓 마운팅 (/var/run/docker.sock)은 호스트 시스템에 대한 루트 권한을 제공합니다.
+# 2. 프로덕션 환경에서는 반드시 SIMULATOR_API_KEY를 설정하여 인증을 활성화하세요.
+# 3. 이 코드는 하드코딩된 명령어만 사용합니다 - 사용자 입력을 subprocess에 전달하지 마세요!
+# 4. 명령어 인젝션 방지를 위해 절대 사용자 입력을 명령어 파라미터로 사용하지 마세요.
+#
+# 안전한 예시:
+#   subprocess.run(['docker', 'start', 'modbus-simulator'])  ✅ 안전
+#
+# 위험한 예시 (절대 사용 금지):
+#   container_name = request.args.get('container')  # 사용자 입력
+#   subprocess.run(['docker', 'start', container_name])  ❌ 명령어 인젝션 취약점!
+#
+# ==============================================================================
+
+@bp.route('/api/simulator/status', methods=['GET'])
+@handle_errors
+def get_simulator_status():
+    """
+    Modbus 시뮬레이터 상태 조회
+
+    Returns:
+        JSON: 시뮬레이터 상태 정보
+    """
+    import subprocess
+
+    try:
+        # docker inspect 명령으로 시뮬레이터 상태 확인
+        result = subprocess.run(
+            ['docker', 'inspect', '-f', '{{.State.Running}}', 'modbus-simulator'],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+
+        if result.returncode != 0:
+            return jsonify({
+                'running': False,
+                'status': 'stopped',
+                'message': '시뮬레이터가 중지되어 있습니다'
+            })
+
+        is_running = result.stdout.strip() == 'true'
+
+        return jsonify({
+            'running': is_running,
+            'status': 'running' if is_running else 'stopped',
+            'container_name': 'modbus-simulator',
+            'message': '시뮬레이터가 실행 중입니다' if is_running else '시뮬레이터가 중지되어 있습니다'
+        })
+
+    except subprocess.TimeoutExpired:
+        return jsonify({
+            'error': 'Timeout',
+            'message': '시뮬레이터 상태 확인 시간 초과'
+        }), 504
+    except FileNotFoundError:
+        return jsonify({
+            'error': 'Docker not found',
+            'message': 'Docker가 설치되어 있지 않습니다'
+        }), 500
+    except Exception as e:
+        current_app.logger.error(f"Simulator status check error: {e}")
+        return jsonify({
+            'error': 'Status check failed',
+            'message': str(e)
+        }), 500
+
+
+@bp.route('/api/simulator/start', methods=['POST'])
+@require_api_key  # 인증 필수
+@handle_errors
+@rate_limit(max_requests=10, window=60)  # 1분에 10회로 제한
+def start_simulator():
+    """
+    Modbus 시뮬레이터 시작
+
+    인증 필요: X-API-Key 헤더 필수 (SIMULATOR_API_KEY 환경 변수 설정 시)
+
+    Returns:
+        JSON: 시작 결과
+    """
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ['docker', 'start', 'modbus-simulator'],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+
+        if result.returncode == 0:
+            current_app.logger.info("Simulator started successfully")
+            return jsonify({
+                'success': True,
+                'message': '시뮬레이터가 시작되었습니다',
+                'output': result.stdout
+            })
+        else:
+            current_app.logger.error(f"Simulator start failed: {result.stderr}")
+            return jsonify({
+                'success': False,
+                'error': 'Start failed',
+                'message': '시뮬레이터 시작에 실패했습니다',
+                'details': result.stderr
+            }), 500
+
+    except subprocess.TimeoutExpired:
+        return jsonify({
+            'error': 'Timeout',
+            'message': '시뮬레이터 시작 시간 초과'
+        }), 504
+    except FileNotFoundError:
+        return jsonify({
+            'error': 'Docker not found',
+            'message': 'Docker가 설치되어 있지 않습니다'
+        }), 500
+
+
+@bp.route('/api/simulator/stop', methods=['POST'])
+@require_api_key  # 인증 필수
+@handle_errors
+@rate_limit(max_requests=10, window=60)  # 1분에 10회로 제한
+def stop_simulator():
+    """
+    Modbus 시뮬레이터 중지
+
+    인증 필요: X-API-Key 헤더 필수 (SIMULATOR_API_KEY 환경 변수 설정 시)
+
+    Returns:
+        JSON: 중지 결과
+    """
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ['docker', 'stop', 'modbus-simulator'],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+
+        if result.returncode == 0:
+            current_app.logger.info("Simulator stopped successfully")
+            return jsonify({
+                'success': True,
+                'message': '시뮬레이터가 중지되었습니다',
+                'output': result.stdout
+            })
+        else:
+            current_app.logger.error(f"Simulator stop failed: {result.stderr}")
+            return jsonify({
+                'success': False,
+                'error': 'Stop failed',
+                'message': '시뮬레이터 중지에 실패했습니다',
+                'details': result.stderr
+            }), 500
+
+    except subprocess.TimeoutExpired:
+        return jsonify({
+            'error': 'Timeout',
+            'message': '시뮬레이터 중지 시간 초과'
+        }), 504
+    except FileNotFoundError:
+        return jsonify({
+            'error': 'Docker not found',
+            'message': 'Docker가 설치되어 있지 않습니다'
+        }), 500
+
+
+@bp.route('/api/simulator/restart', methods=['POST'])
+@require_api_key  # 인증 필수
+@handle_errors
+@rate_limit(max_requests=10, window=60)  # 1분에 10회로 제한
+def restart_simulator():
+    """
+    Modbus 시뮬레이터 재시작
+
+    인증 필요: X-API-Key 헤더 필수 (SIMULATOR_API_KEY 환경 변수 설정 시)
+
+    Returns:
+        JSON: 재시작 결과
+    """
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ['docker', 'restart', 'modbus-simulator'],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+
+        if result.returncode == 0:
+            current_app.logger.info("Simulator restarted successfully")
+            return jsonify({
+                'success': True,
+                'message': '시뮬레이터가 재시작되었습니다',
+                'output': result.stdout
+            })
+        else:
+            current_app.logger.error(f"Simulator restart failed: {result.stderr}")
+            return jsonify({
+                'success': False,
+                'error': 'Restart failed',
+                'message': '시뮬레이터 재시작에 실패했습니다',
+                'details': result.stderr
+            }), 500
+
+    except subprocess.TimeoutExpired:
+        return jsonify({
+            'error': 'Timeout',
+            'message': '시뮬레이터 재시작 시간 초과'
+        }), 504
+    except FileNotFoundError:
+        return jsonify({
+            'error': 'Docker not found',
+            'message': 'Docker가 설치되어 있지 않습니다'
+        }), 500
+
+
+# ==============================================================================
+# Static 페이지 라우트 (UWB 하이패스 대시보드)
+# ==============================================================================
+
+@bp.route('/hipass')
+def hipass_dashboard():
+    """
+    UWB 이륜차 하이패스 모니터링 대시보드
+
+    레이저 센서 기반 입출차 감지 및 신호등 제어 전용 UI
+    """
+    from flask import send_file
+    import os
+
+    # static 폴더의 hipass.html 파일 경로
+    hipass_path = os.path.join(current_app.root_path, 'static', 'hipass.html')
+
+    if not os.path.exists(hipass_path):
+        current_app.logger.error(f"hipass.html not found at: {hipass_path}")
+        return jsonify({'error': 'Page not found'}), 404
+
+    return send_file(hipass_path)
+
+
+@bp.route('/api/hipass/config')
+@handle_errors
+@rate_limit(max_requests=60, window=60)  # 1분에 60회로 제한
+def get_hipass_config():
+    """
+    하이패스 시스템 센서/신호등 매핑 설정 반환
+
+    Returns:
+        JSON: 하이패스 설정
+
+    Raises:
+        400: 설정 값이 유효하지 않은 경우
+    """
+    def safe_int(env_var: str, default: int, var_name: str) -> int:
+        """환경 변수를 안전하게 정수로 변환"""
+        try:
+            value = int(os.getenv(env_var, str(default)))
+            return value
+        except ValueError:
+            current_app.logger.warning(
+                f"Invalid {var_name} in .env: {os.getenv(env_var)}, using default: {default}"
+            )
+            return default
+
+    def validate_channel(value: int, var_name: str, min_val: int = 0, max_val: int = 3) -> int:
+        """채널 번호 검증 (0-3 범위)
+
+        Args:
+            value: 검증할 채널 값
+            var_name: 변수 이름 (에러 메시지용)
+            min_val: 최소값 (기본값: 0)
+            max_val: 최대값 (기본값: 3)
+
+        Returns:
+            int: 검증된 채널 값
+
+        Raises:
+            ValueError: 채널 값이 유효 범위를 벗어난 경우
+        """
+        if not min_val <= value <= max_val:
+            error_msg = f"Invalid {var_name}: {value}, must be between {min_val} and {max_val}"
+            current_app.logger.error(error_msg)
+            raise ValueError(error_msg)
+        return value
+
+    try:
+        # Lane 1 설정 로드 및 검증
+        lane1_sensor1 = safe_int('HIPASS_LANE1_SENSOR1_DI', 1, 'LANE1_SENSOR1_DI')
+        lane1_sensor2 = safe_int('HIPASS_LANE1_SENSOR2_DI', 3, 'LANE1_SENSOR2_DI')
+        lane1_green = safe_int('HIPASS_LANE1_GREEN_DO', 0, 'LANE1_GREEN_DO')
+        lane1_red = safe_int('HIPASS_LANE1_RED_DO', 1, 'LANE1_RED_DO')
+
+        # Lane 2 설정 로드 및 검증
+        lane2_sensor1 = safe_int('HIPASS_LANE2_SENSOR1_DI', 0, 'LANE2_SENSOR1_DI')
+        lane2_sensor2 = safe_int('HIPASS_LANE2_SENSOR2_DI', 2, 'LANE2_SENSOR2_DI')
+        lane2_green = safe_int('HIPASS_LANE2_GREEN_DO', 2, 'LANE2_GREEN_DO')
+        lane2_red = safe_int('HIPASS_LANE2_RED_DO', 3, 'LANE2_RED_DO')
+
+        # 채널 범위 검증
+        validate_channel(lane1_sensor1, 'LANE1_SENSOR1_DI')
+        validate_channel(lane1_sensor2, 'LANE1_SENSOR2_DI')
+        validate_channel(lane1_green, 'LANE1_GREEN_DO')
+        validate_channel(lane1_red, 'LANE1_RED_DO')
+        validate_channel(lane2_sensor1, 'LANE2_SENSOR1_DI')
+        validate_channel(lane2_sensor2, 'LANE2_SENSOR2_DI')
+        validate_channel(lane2_green, 'LANE2_GREEN_DO')
+        validate_channel(lane2_red, 'LANE2_RED_DO')
+
+        config = {
+            'lane1': {
+                'sensor1_di': lane1_sensor1,
+                'sensor2_di': lane1_sensor2,
+                'green_do': lane1_green,
+                'red_do': lane1_red
+            },
+            'lane2': {
+                'sensor1_di': lane2_sensor1,
+                'sensor2_di': lane2_sensor2,
+                'green_do': lane2_green,
+                'red_do': lane2_red
+            },
+            'invert_sensor_logic': os.getenv('HIPASS_INVERT_SENSOR_LOGIC', 'false').lower() == 'true'
+        }
+
+        return jsonify(config)
+
+    except ValueError as e:
+        # 채널 검증 실패 (400 Bad Request)
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        # 기타 서버 오류 (500 Internal Server Error)
+        current_app.logger.error(f"Error loading hipass config: {e}")
+        return jsonify({'error': 'Failed to load configuration'}), 500

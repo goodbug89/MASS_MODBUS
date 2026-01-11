@@ -30,7 +30,19 @@
       "Bash(Select-String \"5020|5021|5022|5023\")",
       "Bash(pip show:*)",
       "Bash(pip uninstall:*)",
-      "Bash(Select-String \"python\")"
+      "Bash(Select-String \"python\")",
+      "Bash(gh pr:*)",
+      "Bash(chmod:*)",
+      "Bash(for:*)",
+      "Bash(do echo \"=== 확인 $i ===\")",
+      "Bash(done)",
+      "Bash(do curl -s http://localhost:5000/api/devices/device1/status)",
+      "Bash(ipconfig:*)",
+      "Bash(taskkill:*)",
+      "Bash(powershell -Command \"Stop-Process -Name ''Docker Desktop'' -Force\")",
+      "Bash(powershell -Command \"Start-Process ''C:\\\\Program Files\\\\Docker\\\\Docker\\\\Docker Desktop.exe''\")",
+      "Bash(powershell -Command \"Start-Sleep -Seconds 30\")",
+      "Bash(py:*)"
     ],
     "deny": [],
     "ask": []

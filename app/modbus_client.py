@@ -606,11 +606,15 @@ class CIE_H14A_Client:
                         if success_input and success_output:
                             consecutive_errors = 0  # 성공 시 에러 카운터 리셋
                             reconnect_backoff = 1.0  # 백오프 리셋
+                            # 연결 상태 확인 (스레드 안전성을 위해 락 사용)
+                            with self._lock:
+                                self._connected = True
                         else:
                             consecutive_errors += 1
                             # 읽기 실패 시 연결 상태 플래그 업데이트
                             if consecutive_errors >= 3:
-                                self._connected = False
+                                with self._lock:
+                                    self._connected = False
 
                         # DI 감지 및 GET 요청 전송 (입력 읽기 성공 시)
                         if success_input:

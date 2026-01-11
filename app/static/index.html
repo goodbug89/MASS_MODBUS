@@ -25,6 +25,9 @@
                 <i class="bi bi-cpu"></i> CIE-H14A Modbus 멀티 제어 시스템
             </span>
             <div class="d-flex align-items-center">
+                <a href="/hipass" class="btn btn-outline-success btn-sm me-2">
+                    <i class="bi bi-broadcast"></i> UWB 하이패스
+                </a>
                 <a href="/docs" class="btn btn-outline-light btn-sm me-2">
                     <i class="bi bi-book"></i> API 문서
                 </a>
@@ -39,6 +42,54 @@
     <div class="container-fluid mt-4">
         <!-- 알림 영역 -->
         <div id="alertContainer"></div>
+
+        <!-- 시뮬레이터 제어 카드 -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card border-info">
+                    <div class="card-header bg-info text-white">
+                        <h5 class="mb-0">
+                            <i class="bi bi-gear-fill"></i> Modbus 시뮬레이터 제어
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row align-items-center">
+                            <div class="col-md-4 mb-2 mb-md-0">
+                                <div class="d-flex align-items-center">
+                                    <span class="me-3"><strong>상태:</strong></span>
+                                    <span id="simulatorStatus" class="badge bg-secondary">
+                                        <i class="bi bi-circle-fill"></i>
+                                        <span id="simulatorStatusText">확인 중...</span>
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="col-md-8">
+                                <div class="btn-group" role="group">
+                                    <button type="button" class="btn btn-success btn-sm" id="btnSimulatorStart">
+                                        <i class="bi bi-play-fill"></i> 시작
+                                    </button>
+                                    <button type="button" class="btn btn-warning btn-sm" id="btnSimulatorStop">
+                                        <i class="bi bi-stop-fill"></i> 중지
+                                    </button>
+                                    <button type="button" class="btn btn-primary btn-sm" id="btnSimulatorRestart">
+                                        <i class="bi bi-arrow-clockwise"></i> 재시작
+                                    </button>
+                                    <button type="button" class="btn btn-info btn-sm" id="btnSimulatorRefresh">
+                                        <i class="bi bi-arrow-repeat"></i> 상태 새로고침
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="simulatorMessage" class="mt-3" style="display: none;">
+                            <div class="alert alert-info mb-0" role="alert">
+                                <i class="bi bi-info-circle"></i>
+                                <span id="simulatorMessageText"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
 
         <!-- API 모니터링 카드 (전체 통합) -->
         <div class="row mb-4">

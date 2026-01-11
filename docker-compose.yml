@@ -32,6 +32,9 @@ services:
     restart: unless-stopped
     ports:
       - "5000:5000"
+    volumes:
+      # Docker 소켓 마운트 (시뮬레이터 제어용)
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - TZ=Asia/Seoul
       - FLASK_ENV=${FLASK_ENV:-production}
@@ -41,7 +44,7 @@ services:
       # 전역 Modbus 기본값 (개별 장비 설정이 없을 때 사용)
       - MODBUS_DEFAULT_UNIT_ID=${MODBUS_DEFAULT_UNIT_ID:-1}
       - MODBUS_DEFAULT_TIMEOUT=${MODBUS_DEFAULT_TIMEOUT:-0.3}
-      - MODBUS_DEFAULT_POLL_INTERVAL=${MODBUS_DEFAULT_POLL_INTERVAL:-0.5}
+      - MODBUS_DEFAULT_POLL_INTERVAL=${MODBUS_DEFAULT_POLL_INTERVAL:-0.025}
       - MODBUS_DEFAULT_AUTO_OFF_TIME=${MODBUS_DEFAULT_AUTO_OFF_TIME:-1.0}
       - MODBUS_DEFAULT_RETRY_COUNT=${MODBUS_DEFAULT_RETRY_COUNT:-3}
       - MODBUS_DEFAULT_RETRY_DELAY=${MODBUS_DEFAULT_RETRY_DELAY:-0.1}

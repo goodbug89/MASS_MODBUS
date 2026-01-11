@@ -13,6 +13,12 @@ const RECONNECT_BASE_DELAY = 2000; // 2초
 let reconnectTimeout = null;
 let devicesData = {};  // 장비 데이터 캐시
 
+// DI 감지 시간 추적 (각 디바이스별로 관리)
+let diTimestamps = {}; // { 'device1': { 0: timestamp, 1: timestamp, ... } }
+
+// DO3 자동제어 실행 여부 (중복 실행 방지)
+let do3AutoTriggered = {}; // { 'device1': true/false }
+
 // 페이지 로드 시 초기화
 document.addEventListener('DOMContentLoaded', async function() {
     console.log('CIE-H14A Modbus 멀티 제어 시스템 초기화 중...');
@@ -32,6 +38,9 @@ document.addEventListener('DOMContentLoaded', async function() {
     // API 모니터링 시작 (5초마다)
     startMonitoring();
     setInterval(startMonitoring, 5000);
+
+    // 시뮬레이터 제어 초기화
+    initSimulatorControl();
 });
 
 /**
@@ -55,6 +64,10 @@ async function loadDevicesList() {
                 outputs: [false, false, false, false],
                 di_detection: {}
             };
+            // DI 타임스탬프 초기화
+            diTimestamps[device.id] = { 0: null, 1: null, 2: null, 3: null };
+            // DO3 자동제어 플래그 초기화
+            do3AutoTriggered[device.id] = false;
         });
 
         console.log(`${data.devices.length}대 장비 로드 완료`);
@@ -111,8 +124,19 @@ function createDeviceCard(device) {
                                 <i class="bi bi-circle-fill led-off"></i>
                                 <div class="mt-1"><strong>DI ${ch}</strong></div>
                                 <div class="input-state">OFF</div>
+                                <div class="input-time text-muted small" id="time-${device.id}-${ch}" style="min-height: 16px;">-</div>
                             </div>
                         `).join('')}
+                    </div>
+                </div>
+
+                <!-- DI0-DI2 시간차 표시 -->
+                <div class="mb-3">
+                    <div class="alert alert-info mb-0 py-2" role="alert">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-clock"></i> <strong>DI0-DI2 시간차:</strong></span>
+                            <span class="badge bg-primary" id="timedelta-${device.id}" style="font-size: 0.9rem;">-</span>
+                        </div>
                     </div>
                 </div>
 
@@ -342,17 +366,164 @@ function updateInputIndicator(deviceId, channel, state) {
 
     const led = indicator.querySelector('i');
     const stateText = indicator.querySelector('.input-state');
+    const timeText = document.getElementById(`time-${deviceId}-${channel}`);
+
+    // 이전 상태 확인 (엣지 트리거 방식)
+    const previousState = devicesData[deviceId]?.inputs?.[channel] || false;
 
     if (state) {
         led.classList.remove('led-off');
         led.classList.add('led-on');
         stateText.textContent = 'ON';
         stateText.classList.add('state-on');
+
+        // OFF → ON 전환 시 타임스탬프 기록
+        if (!previousState) {
+            const now = Date.now();
+            if (!diTimestamps[deviceId]) {
+                diTimestamps[deviceId] = {};
+            }
+            diTimestamps[deviceId][channel] = now;
+
+            // 시간 표시
+            const timeStr = new Date(now).toLocaleTimeString('ko-KR', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                fractionalSecondDigits: 3
+            });
+            if (timeText) {
+                timeText.textContent = timeStr;
+                timeText.classList.add('text-success');
+            }
+
+            // DI0-DI2 시간차 계산 (DI0 또는 DI2가 감지되었을 때)
+            if (channel === 0 || channel === 2) {
+                updateTimeDelta(deviceId);
+            }
+        }
     } else {
         led.classList.remove('led-on');
         led.classList.add('led-off');
         stateText.textContent = 'OFF';
         stateText.classList.remove('state-on');
+
+        // DI0 또는 DI2가 OFF가 되면 타임스탬프 및 자동제어 플래그 리셋
+        if (channel === 0 || channel === 2) {
+            if (previousState && !state) {
+                // ON → OFF 전환 시
+                if (diTimestamps[deviceId]) {
+                    diTimestamps[deviceId][channel] = null;
+                }
+                // 두 센서 모두 OFF가 되면 자동제어 플래그 리셋
+                const di0Off = !devicesData[deviceId]?.inputs?.[0];
+                const di2Off = !devicesData[deviceId]?.inputs?.[2];
+                if (di0Off && di2Off) {
+                    do3AutoTriggered[deviceId] = false;
+                }
+            }
+        }
+    }
+}
+
+/**
+ * DI0-DI2 시간차 계산 및 표시
+ */
+function updateTimeDelta(deviceId) {
+    const timeDeltaBadge = document.getElementById(`timedelta-${deviceId}`);
+    if (!timeDeltaBadge) return;
+
+    const di0Time = diTimestamps[deviceId]?.[0];
+    const di2Time = diTimestamps[deviceId]?.[2];
+
+    if (di0Time && di2Time) {
+        // 시간차 계산 (밀리초)
+        const deltaMs = Math.abs(di2Time - di0Time);
+
+        // 표시 형식 선택
+        let displayText = '';
+        if (deltaMs < 1000) {
+            // 1초 미만: 밀리초 표시
+            displayText = `${deltaMs.toFixed(0)} ms`;
+        } else {
+            // 1초 이상: 초 단위 표시
+            displayText = `${(deltaMs / 1000).toFixed(3)} 초`;
+        }
+
+        timeDeltaBadge.textContent = displayText;
+
+        // 시간차에 따라 배지 색상 변경
+        timeDeltaBadge.classList.remove('bg-primary', 'bg-success', 'bg-warning', 'bg-danger');
+        if (deltaMs < 500) {
+            timeDeltaBadge.classList.add('bg-success'); // 500ms 미만: 녹색
+        } else if (deltaMs < 1000) {
+            timeDeltaBadge.classList.add('bg-primary'); // 1초 미만: 파랑
+        } else if (deltaMs < 1500) {
+            timeDeltaBadge.classList.add('bg-warning'); // 1.5초 미만: 노랑
+        } else {
+            timeDeltaBadge.classList.add('bg-danger'); // 1.5초 이상: 빨강
+        }
+
+        // ⚡ 자동 제어: 1.5초 이내 감지 시 DO3를 0.5초간 켜기 (중복 실행 방지)
+        if (deltaMs < 1500 && !do3AutoTriggered[deviceId]) {
+            do3AutoTriggered[deviceId] = true;
+            triggerDO3Pulse(deviceId, deltaMs);
+        }
+    } else if (di0Time || di2Time) {
+        // 하나만 감지됨
+        const detectedCh = di0Time ? 'DI0' : 'DI2';
+        timeDeltaBadge.textContent = `${detectedCh}만 감지됨`;
+        timeDeltaBadge.classList.remove('bg-primary', 'bg-success', 'bg-warning', 'bg-danger');
+        timeDeltaBadge.classList.add('bg-secondary');
+    } else {
+        // 아직 감지 안됨
+        timeDeltaBadge.textContent = '-';
+        timeDeltaBadge.classList.remove('bg-success', 'bg-warning', 'bg-danger', 'bg-secondary');
+        timeDeltaBadge.classList.add('bg-primary');
+    }
+}
+
+/**
+ * DO3 펄스 제어 (0.5초간 켜기)
+ * DI0-DI2 시간차가 1.5초 이내일 때 자동 실행
+ */
+async function triggerDO3Pulse(deviceId, deltaMs) {
+    try {
+        console.log(`[자동제어] ${deviceId} - DI0-DI2 시간차 ${deltaMs}ms → DO3 펄스 시작`);
+
+        // DO3 켜기 (channel 3)
+        const onResponse = await fetch(`/api/devices/${deviceId}/output/3`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ state: true })
+        });
+
+        if (!onResponse.ok) {
+            throw new Error('DO3 ON 실패');
+        }
+
+        addLog('success', `[${deviceId}] 자동제어: DO3 ON (시간차 ${deltaMs}ms)`);
+
+        // 0.5초 대기
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // DO3 끄기
+        const offResponse = await fetch(`/api/devices/${deviceId}/output/3`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ state: false })
+        });
+
+        if (!offResponse.ok) {
+            throw new Error('DO3 OFF 실패');
+        }
+
+        console.log(`[자동제어] ${deviceId} - DO3 펄스 완료`);
+        addLog('info', `[${deviceId}] 자동제어: DO3 OFF (0.5초 펄스 완료)`);
+
+    } catch (error) {
+        console.error(`[자동제어] ${deviceId} DO3 펄스 오류:`, error);
+        addLog('danger', `[${deviceId}] 자동제어 오류: ${error.message}`);
     }
 }
 
@@ -454,6 +625,9 @@ async function toggleOutput(deviceId, channel) {
         }, 100);
     }
 }
+
+// 전역 스코프에 노출 (onclick 속성에서 접근 가능하도록)
+window.toggleOutput = toggleOutput;
 
 /**
  * 연결 요약 업데이트
@@ -593,3 +767,208 @@ document.addEventListener('visibilitychange', function() {
         loadAllStatus();
     }
 });
+
+// ==============================================================================
+// 시뮬레이터 제어 기능
+// ==============================================================================
+
+/**
+ * 시뮬레이터 제어 초기화
+ */
+function initSimulatorControl() {
+    // 버튼 이벤트 리스너
+    document.getElementById('btnSimulatorStart')?.addEventListener('click', startSimulator);
+    document.getElementById('btnSimulatorStop')?.addEventListener('click', stopSimulator);
+    document.getElementById('btnSimulatorRestart')?.addEventListener('click', restartSimulator);
+    document.getElementById('btnSimulatorRefresh')?.addEventListener('click', checkSimulatorStatus);
+
+    // 초기 상태 확인
+    checkSimulatorStatus();
+
+    // 10초마다 자동 상태 확인
+    setInterval(checkSimulatorStatus, 10000);
+}
+
+/**
+ * 시뮬레이터 상태 확인
+ */
+async function checkSimulatorStatus() {
+    try {
+        const response = await fetch('/api/simulator/status');
+        const data = await response.json();
+
+        const statusBadge = document.getElementById('simulatorStatus');
+        const statusText = document.getElementById('simulatorStatusText');
+
+        if (data.running) {
+            statusBadge.className = 'badge bg-success';
+            statusText.textContent = '실행 중';
+        } else {
+            statusBadge.className = 'badge bg-secondary';
+            statusText.textContent = '중지됨';
+        }
+
+        console.log('Simulator status:', data);
+    } catch (error) {
+        console.error('시뮬레이터 상태 확인 실패:', error);
+        const statusBadge = document.getElementById('simulatorStatus');
+        const statusText = document.getElementById('simulatorStatusText');
+        statusBadge.className = 'badge bg-danger';
+        statusText.textContent = '오류';
+    }
+}
+
+/**
+ * 시뮬레이터 시작
+ */
+async function startSimulator() {
+    const btn = document.getElementById('btnSimulatorStart');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> 시작 중...';
+
+    try {
+        // API 키 가져오기 (meta 태그에서 또는 환경 변수)
+        const apiKey = document.querySelector('meta[name="api-key"]')?.content;
+        const headers = {
+            'Content-Type': 'application/json'
+        };
+
+        // API 키가 있으면 헤더에 추가
+        if (apiKey) {
+            headers['X-API-Key'] = apiKey;
+        }
+
+        const response = await fetch('/api/simulator/start', {
+            method: 'POST',
+            headers: headers
+        });
+
+        const data = await response.json();
+
+        if (response.status === 401 || response.status === 403) {
+            showSimulatorMessage('인증 실패: ' + (data.message || 'API 키가 필요합니다'), 'danger');
+            return;
+        }
+
+        if (data.success) {
+            showSimulatorMessage('시뮬레이터가 성공적으로 시작되었습니다.', 'success');
+            setTimeout(checkSimulatorStatus, 2000);
+        } else {
+            showSimulatorMessage('시뮬레이터 시작 실패: ' + (data.message || '알 수 없는 오류'), 'danger');
+        }
+    } catch (error) {
+        console.error('시뮬레이터 시작 오류:', error);
+        showSimulatorMessage('시뮬레이터 시작 중 오류가 발생했습니다.', 'danger');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-play-fill"></i> 시작';
+    }
+}
+
+/**
+ * 시뮬레이터 중지
+ */
+async function stopSimulator() {
+    const btn = document.getElementById('btnSimulatorStop');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> 중지 중...';
+
+    try {
+        const apiKey = document.querySelector('meta[name="api-key"]')?.content;
+        const headers = {
+            'Content-Type': 'application/json'
+        };
+
+        if (apiKey) {
+            headers['X-API-Key'] = apiKey;
+        }
+
+        const response = await fetch('/api/simulator/stop', {
+            method: 'POST',
+            headers: headers
+        });
+
+        const data = await response.json();
+
+        if (response.status === 401 || response.status === 403) {
+            showSimulatorMessage('인증 실패: ' + (data.message || 'API 키가 필요합니다'), 'danger');
+            return;
+        }
+
+        if (data.success) {
+            showSimulatorMessage('시뮬레이터가 성공적으로 중지되었습니다.', 'warning');
+            setTimeout(checkSimulatorStatus, 2000);
+        } else {
+            showSimulatorMessage('시뮬레이터 중지 실패: ' + (data.message || '알 수 없는 오류'), 'danger');
+        }
+    } catch (error) {
+        console.error('시뮬레이터 중지 오류:', error);
+        showSimulatorMessage('시뮬레이터 중지 중 오류가 발생했습니다.', 'danger');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-stop-fill"></i> 중지';
+    }
+}
+
+/**
+ * 시뮬레이터 재시작
+ */
+async function restartSimulator() {
+    const btn = document.getElementById('btnSimulatorRestart');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> 재시작 중...';
+
+    try {
+        const apiKey = document.querySelector('meta[name="api-key"]')?.content;
+        const headers = {
+            'Content-Type': 'application/json'
+        };
+
+        if (apiKey) {
+            headers['X-API-Key'] = apiKey;
+        }
+
+        const response = await fetch('/api/simulator/restart', {
+            method: 'POST',
+            headers: headers
+        });
+
+        const data = await response.json();
+
+        if (response.status === 401 || response.status === 403) {
+            showSimulatorMessage('인증 실패: ' + (data.message || 'API 키가 필요합니다'), 'danger');
+            return;
+        }
+
+        if (data.success) {
+            showSimulatorMessage('시뮬레이터가 성공적으로 재시작되었습니다.', 'info');
+            setTimeout(checkSimulatorStatus, 3000);
+        } else {
+            showSimulatorMessage('시뮬레이터 재시작 실패: ' + (data.message || '알 수 없는 오류'), 'danger');
+        }
+    } catch (error) {
+        console.error('시뮬레이터 재시작 오류:', error);
+        showSimulatorMessage('시뮬레이터 재시작 중 오류가 발생했습니다.', 'danger');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> 재시작';
+    }
+}
+
+/**
+ * 시뮬레이터 메시지 표시
+ */
+function showSimulatorMessage(message, type = 'info') {
+    const messageDiv = document.getElementById('simulatorMessage');
+    const messageText = document.getElementById('simulatorMessageText');
+    const alertDiv = messageDiv.querySelector('.alert');
+
+    messageText.textContent = message;
+    alertDiv.className = `alert alert-${type} mb-0`;
+    messageDiv.style.display = 'block';
+
+    // 5초 후 자동 숨김
+    setTimeout(() => {
+        messageDiv.style.display = 'none';
+    }, 5000);
+}

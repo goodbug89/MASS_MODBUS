@@ -26,7 +26,7 @@ class Config:
     # ===========================================================================
     MODBUS_DEFAULT_UNIT_ID = int(os.getenv('MODBUS_DEFAULT_UNIT_ID', 1))
     MODBUS_DEFAULT_TIMEOUT = float(os.getenv('MODBUS_DEFAULT_TIMEOUT', 0.3))
-    MODBUS_DEFAULT_POLL_INTERVAL = float(os.getenv('MODBUS_DEFAULT_POLL_INTERVAL', 0.5))
+    MODBUS_DEFAULT_POLL_INTERVAL = float(os.getenv('MODBUS_DEFAULT_POLL_INTERVAL', 0.025))  # 25ms 기본값 (고속 감지)
     MODBUS_DEFAULT_AUTO_OFF_TIME = float(os.getenv('MODBUS_DEFAULT_AUTO_OFF_TIME', 1.0))
     MODBUS_DEFAULT_RETRY_COUNT = int(os.getenv('MODBUS_DEFAULT_RETRY_COUNT', 3))
     MODBUS_DEFAULT_RETRY_DELAY = float(os.getenv('MODBUS_DEFAULT_RETRY_DELAY', 0.1))
