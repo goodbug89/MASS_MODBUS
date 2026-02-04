@@ -7,6 +7,7 @@ OWASP Secure Coding Practices를 적용한 REST API 및 SSE 엔드포인트
 
 import json
 import time
+import threading
 from functools import wraps
 from flask import Blueprint, jsonify, request, Response, current_app
 from app import modbus_clients, api_monitor_data
@@ -14,6 +15,10 @@ from app.validators import (
     ValidationError, validate_channel, validate_boolean,
     validate_json_payload, validate_device_id
 )
+
+# 자동 꺼짐 타이머 관리 (device_id_channel: Timer)
+_auto_off_timers = {}
+_timer_lock = threading.Lock()
 
 # Blueprint 생성
 bp = Blueprint('api', __name__)
@@ -153,6 +158,66 @@ def handle_errors(func):
                 'message': 'An unexpected error occurred'
             }), 500
     return wrapper
+
+
+def _schedule_auto_off(device_id: str, channel: int, duration_ms: int, app) -> None:
+    """
+    자동 꺼짐 타이머 설정
+
+    지정된 시간(밀리초) 후에 출력을 자동으로 끕니다.
+    동일한 device_id/channel에 기존 타이머가 있으면 취소 후 새로 설정합니다.
+
+    Args:
+        device_id: 장비 ID
+        channel: 출력 채널 번호 (0-3)
+        duration_ms: 자동 꺼짐까지의 시간 (밀리초)
+        app: Flask 애플리케이션 컨텍스트
+    """
+    global _auto_off_timers
+
+    timer_key = f"{device_id}_{channel}"
+    duration_sec = duration_ms / 1000.0
+
+    def auto_off_callback():
+        """타이머 콜백: 출력 끄기"""
+        with app.app_context():
+            try:
+                if device_id in modbus_clients:
+                    client = modbus_clients[device_id]
+                    success = client.write_output(channel, False)
+                    if success:
+                        app.logger.info(
+                            f"[{device_id}] Auto-off triggered: channel={channel}, "
+                            f"duration={duration_ms}ms"
+                        )
+                    else:
+                        app.logger.error(
+                            f"[{device_id}] Auto-off failed: channel={channel}"
+                        )
+            except Exception as e:
+                app.logger.error(f"[{device_id}] Auto-off error: {e}")
+            finally:
+                # 타이머 정리
+                with _timer_lock:
+                    if timer_key in _auto_off_timers:
+                        del _auto_off_timers[timer_key]
+
+    with _timer_lock:
+        # 기존 타이머 취소
+        if timer_key in _auto_off_timers:
+            old_timer = _auto_off_timers[timer_key]
+            old_timer.cancel()
+            app.logger.debug(f"[{device_id}] Cancelled existing auto-off timer for channel {channel}")
+
+        # 새 타이머 설정
+        timer = threading.Timer(duration_sec, auto_off_callback)
+        timer.daemon = True
+        timer.start()
+        _auto_off_timers[timer_key] = timer
+
+        app.logger.info(
+            f"[{device_id}] Auto-off scheduled: channel={channel}, duration={duration_ms}ms"
+        )
 
 
 @bp.route('/')
@@ -610,7 +675,10 @@ def control_device_output(device_id, channel):
         channel: 출력 채널 번호 (0-3)
 
     Body:
-        {"state": true/false}
+        {
+            "state": true/false,
+            "duration_ms": 1000  (선택, 밀리초 단위 자동 꺼짐 시간)
+        }
 
     Returns:
         JSON: 제어 결과
@@ -633,24 +701,55 @@ def control_device_output(device_id, channel):
     if data is None:
         return jsonify({'error': 'Request body is empty'}), 400
 
-    validate_json_payload(data, required_fields=['state'])
+    validate_json_payload(data, required_fields=['state'], optional_fields=['duration_ms'])
     state = validate_boolean(data['state'])
+
+    # duration_ms 파라미터 확인 (선택적)
+    duration_ms = data.get('duration_ms')
+    if duration_ms is not None:
+        try:
+            duration_ms = int(duration_ms)
+            if duration_ms < 10:
+                return jsonify({
+                    'error': 'Invalid duration_ms',
+                    'message': 'duration_ms must be at least 10ms'
+                }), 400
+            if duration_ms > 3600000:  # 최대 1시간
+                return jsonify({
+                    'error': 'Invalid duration_ms',
+                    'message': 'duration_ms must not exceed 3600000ms (1 hour)'
+                }), 400
+        except (TypeError, ValueError):
+            return jsonify({
+                'error': 'Invalid duration_ms',
+                'message': 'duration_ms must be a positive integer (milliseconds)'
+            }), 400
 
     # 출력 제어
     client = modbus_clients[device_id]
     success = client.write_output(channel, state)
 
     if success:
+        # 자동 꺼짐 타이머 설정 (state=True이고 duration_ms가 지정된 경우)
+        if state and duration_ms is not None:
+            _schedule_auto_off(device_id, channel, duration_ms, current_app._get_current_object())
+
         current_app.logger.info(
             f"[{device_id}] Output control: channel={channel}, state={state}, "
-            f"client={request.remote_addr}"
+            f"duration_ms={duration_ms}, client={request.remote_addr}"
         )
-        return jsonify({
+
+        response_data = {
             'success': True,
             'device_id': device_id,
             'channel': channel,
             'state': state
-        })
+        }
+        if duration_ms is not None:
+            response_data['duration_ms'] = duration_ms
+            response_data['auto_off'] = state  # state가 True일 때만 자동 꺼짐 활성화
+
+        return jsonify(response_data)
     else:
         return jsonify({
             'error': 'Output control failed',
@@ -802,8 +901,13 @@ def turn_on_device_output(device_id, channel):
         device_id: 장비 ID
         channel: 출력 채널 번호 (0-3)
 
-    Example:
+    Query Parameters:
+        duration: 자동 꺼짐 시간 (밀리초, 선택적)
+
+    Examples:
         http://localhost:5000/api/devices/device2/output/1/on
+        http://localhost:5000/api/devices/device2/output/1/on?duration=500
+        http://localhost:5000/api/devices/device2/output/1/on?duration=1000
 
     Returns:
         JSON: 제어 결과
@@ -817,22 +921,53 @@ def turn_on_device_output(device_id, channel):
     # 채널 번호 검증
     channel = validate_channel(channel)
 
+    # duration 쿼리 파라미터 확인 (선택적)
+    duration_ms = request.args.get('duration')
+    if duration_ms is not None:
+        try:
+            duration_ms = int(duration_ms)
+            if duration_ms < 10:
+                return jsonify({
+                    'error': 'Invalid duration',
+                    'message': 'duration must be at least 10ms'
+                }), 400
+            if duration_ms > 3600000:  # 최대 1시간
+                return jsonify({
+                    'error': 'Invalid duration',
+                    'message': 'duration must not exceed 3600000ms (1 hour)'
+                }), 400
+        except (TypeError, ValueError):
+            return jsonify({
+                'error': 'Invalid duration',
+                'message': 'duration must be a positive integer (milliseconds)'
+            }), 400
+
     # 출력 켜기
     client = modbus_clients[device_id]
     success = client.write_output(channel, True)
 
     if success:
+        # 자동 꺼짐 타이머 설정 (duration이 지정된 경우)
+        if duration_ms is not None:
+            _schedule_auto_off(device_id, channel, duration_ms, current_app._get_current_object())
+
         current_app.logger.info(
             f"[{device_id}] Output ON (GET): channel={channel}, "
-            f"client={request.remote_addr}"
+            f"duration={duration_ms}ms, client={request.remote_addr}"
         )
-        return jsonify({
+
+        response_data = {
             'success': True,
             'device_id': device_id,
             'channel': channel,
             'state': True,
             'message': f'DO{channel} turned ON'
-        })
+        }
+        if duration_ms is not None:
+            response_data['duration_ms'] = duration_ms
+            response_data['auto_off'] = True
+
+        return jsonify(response_data)
     else:
         return jsonify({
             'error': 'Output control failed',

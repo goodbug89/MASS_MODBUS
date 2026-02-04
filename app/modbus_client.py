@@ -100,9 +100,10 @@ class CIE_H14A_Client:
         self._outputs: List[bool] = [False] * self.NUM_CHANNELS
         self._last_update = 0.0
 
-        # DI 변화 감지를 위한 상태
-        self._di_triggered = False  # DI가 하나라도 ON 상태인지
-        self._request_sent = False  # GET 요청을 보냈는지
+        # DI 변화 감지를 위한 상태 (각 채널별 개별 추적)
+        self._prev_di_states: List[bool] = [False] * self.NUM_CHANNELS  # 이전 DI 상태 (엣지 감지용)
+        self._di_triggered = False  # DI가 하나라도 ON 상태인지 (호환성 유지)
+        self._request_sent = False  # GET 요청을 보냈는지 (호환성 유지)
         self._last_di_states: List[bool] = [False] * self.NUM_CHANNELS  # 마지막 전송한 DI 상태
 
         # 스레드 안전을 위한 락 (짧게만 사용)
@@ -473,9 +474,10 @@ class CIE_H14A_Client:
         """
         DI 상태를 확인하고 필요시 GET 요청 전송
 
-        로직:
-        1. DI가 하나라도 ON이면 -> 요청을 보내지 않았다면 즉시 전송
-        2. 모든 DI가 OFF이면 -> 전송 가능 상태로 리셋
+        로직 (개선됨):
+        - 각 DI 채널별로 상태 변화(ON/OFF)를 개별 감지
+        - 상태가 변할 때마다 해당 채널의 정보만 전송
+        - 정확한 타임스탬프로 시간차 분석 가능
         """
         # Sensor URL이 설정되지 않았으면 아무것도 하지 않음
         if not self.sensor_url or not self.sensor_device_id:
@@ -484,34 +486,87 @@ class CIE_H14A_Client:
         with self._lock:
             inputs_copy = self._inputs.copy()
 
-        # 현재 DI 상태 확인 (하나라도 ON인지)
+        # 각 채널별로 상태 변화 감지 및 개별 전송
+        for channel in range(self.NUM_CHANNELS):
+            prev_state = self._prev_di_states[channel]
+            curr_state = inputs_copy[channel]
+
+            # 상태 변화 감지 (엣지 트리거)
+            if prev_state != curr_state:
+                # ON → OFF 또는 OFF → ON 전환
+                state_str = "ON" if curr_state else "OFF"
+                logger.info(f"[DI 감지] DI{channel} 상태 변화: {prev_state} → {curr_state} ({state_str})")
+
+                # 개별 채널 HTTP GET 요청 전송
+                self._send_channel_request(channel, curr_state)
+
+                # 이전 상태 업데이트
+                self._prev_di_states[channel] = curr_state
+
+        # 호환성 유지: 전체 상태 추적
         any_di_on = any(inputs_copy)
-
-        # 상태 변화 감지
         if any_di_on:
-            # DI가 하나라도 ON 상태
-            if not self._di_triggered:
-                # OFF -> ON 전환 (첫 번째 감지)
-                self._di_triggered = True
-                logger.info(f"[DI 감지] DI 입력 감지: {inputs_copy}")
-
-            # GET 요청 전송 (아직 안 보냈으면)
-            if not self._request_sent:
-                self._send_sensor_request(inputs_copy)
-                self._request_sent = True
-                with self._lock:
-                    self._last_di_states = inputs_copy.copy()
-            else:
-                logger.debug(f"[DI 감지] DI ON 상태 유지 중 - 중복 전송 방지")
+            self._di_triggered = True
+            self._request_sent = True
+            with self._lock:
+                self._last_di_states = inputs_copy.copy()
         else:
-            # 모든 DI가 OFF 상태
             if self._di_triggered:
-                # ON -> OFF 전환
-                logger.info(f"[DI 감지] 모든 DI OFF - 전송 가능 상태로 리셋")
-                self._di_triggered = False
-                self._request_sent = False
-                with self._lock:
-                    self._last_di_states = [False] * self.NUM_CHANNELS
+                logger.debug(f"[DI 감지] 모든 DI OFF 상태")
+            self._di_triggered = False
+            self._request_sent = False
+
+    def _send_channel_request(self, channel: int, state: bool) -> None:
+        """
+        개별 DI 채널 상태 변화 GET 요청 전송
+
+        Args:
+            channel: DI 채널 번호 (0-3)
+            state: 현재 상태 (True=ON, False=OFF)
+        """
+        try:
+            # 밀리초 단위 타임스탬프 생성
+            timestamp_ms = int(time.time() * 1000)
+
+            # URL 파라미터 구성 (개별 채널 방식)
+            params = {
+                'id': self.sensor_device_id,
+                'channel': channel,
+                'state': 1 if state else 0,
+                'time': timestamp_ms
+            }
+
+            state_str = "ON" if state else "OFF"
+            logger.info(
+                f"[DI 감지] 개별 채널 GET 요청 전송 - "
+                f"URL: {self.sensor_url}, Device: {self.sensor_device_id}, "
+                f"Channel: DI{channel}, State: {state_str}, Time: {timestamp_ms}ms"
+            )
+
+            # GET 요청 전송 (타임아웃 3초)
+            response = requests.get(
+                self.sensor_url,
+                params=params,
+                timeout=3.0
+            )
+
+            if response.status_code == 200:
+                logger.info(
+                    f"[DI 감지] GET 요청 성공 - DI{channel}={state_str}, "
+                    f"Status: {response.status_code}"
+                )
+            else:
+                logger.warning(
+                    f"[DI 감지] GET 요청 실패 - DI{channel}={state_str}, "
+                    f"Status: {response.status_code}, Response: {response.text[:100]}"
+                )
+
+        except requests.Timeout:
+            logger.error(f"[DI 감지] GET 요청 타임아웃 - DI{channel}, URL: {self.sensor_url}")
+        except requests.RequestException as e:
+            logger.error(f"[DI 감지] GET 요청 예외 - DI{channel}, URL: {self.sensor_url}, Error: {e}")
+        except Exception as e:
+            logger.error(f"[DI 감지] GET 요청 처리 중 예외 - DI{channel}: {e}", exc_info=True)
 
     def _send_sensor_request(self, inputs: List[bool]) -> None:
         """

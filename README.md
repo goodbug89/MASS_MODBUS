@@ -1,6 +1,7 @@
 # CIE-H14A Modbus TCP/IP 멀티 제어 시스템
 
 <p align="center">
+  <img src="https://img.shields.io/badge/Version-2.2.0-orange.svg" alt="Version">
   <img src="https://img.shields.io/badge/Python-3.11+-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/Flask-3.0-green.svg" alt="Flask">
   <img src="https://img.shields.io/badge/Docker-Ready-blue.svg" alt="Docker">
@@ -10,19 +11,24 @@
 
 **최대 8대**의 CIE-H14A 4채널 원격 I/O 컨트롤러를 Modbus TCP/IP 프로토콜을 통해 웹에서 동시에 모니터링하고 제어하는 시스템입니다.
 
+> 📚 **상세 문서**: [MANUAL.md](MANUAL.md) - API 레퍼런스, 환경 설정, 문제 해결 가이드
+
 ## 주요 기능
 
 - 🚀 **멀티 디바이스 지원**: 최대 8대 장비 동시 제어
 - 🔌 **4채널 디지털 입력 모니터링**: 실시간 입력 상태 표시 (각 장비당 4채널)
 - ⚡ **4채널 디지털 출력 제어**: 웹 인터페이스를 통한 릴레이 제어 (각 장비당 4채널)
-- 🔄 **실시간 업데이트**: Server-Sent Events를 통한 자동 상태 갱신
+- 🔄 **실시간 업데이트**: Server-Sent Events를 통한 자동 상태 갱신 (25ms 주기)
+- 📡 **외부 서버 연동**: DI 상태 변화 시 HTTP GET 요청 자동 전송 (개별 채널별)
+- ⏱️ **자동 DO 제어**: DI0-DI2 시간차 기반 DO3 자동 펄스 제어
+- 🔄 **출력 자동 꺼짐**: duration 파라미터로 출력 ON 후 자동 OFF (ms 단위)
 - 🎨 **Glass Morphism UI**: 다크모드 + 반투명 유리 효과 디자인
 - 📱 **반응형 디자인**: 모바일, 태블릿, 데스크톱 지원
 - 🐳 **Docker 지원**: 간편한 배포 및 실행
 - 🔧 **자동 재연결**: 각 장비별 독립적인 자동 재연결
 - 📊 **통합 모니터링**: 모든 장비의 상태를 한 화면에서 확인
 - 🔒 **보안 강화**: OWASP 기반 입력 검증 및 XSS 방지
-- 🚴 **UWB 하이패스 시스템**: 이륜차 입출차 자동 감지 및 신호등 제어 (25ms 고속 폴링)
+- 🚴 **UWB 하이패스 시스템**: 이륜차 입출차 자동 감지 및 신호등 제어
 
 ## 빠른 시작
 
